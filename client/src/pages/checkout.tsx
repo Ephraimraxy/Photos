@@ -40,22 +40,22 @@ export default function Checkout() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [sessionId, setSessionId] = useState("");
+  const [trackingCode, setTrackingCode] = useState("");
   const [paystackLoaded, setPaystackLoaded] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
-  const [purchaseData, setPurchaseData] = useState<{ purchaseId: string; trackingLink: string; total: number; itemCount: number } | null>(null);
+  const [purchaseData, setPurchaseData] = useState<{ purchaseId: string; trackingCode: string; trackingLink: string; total: number; itemCount: number } | null>(null);
 
   useEffect(() => {
     const items = localStorage.getItem("checkoutItems");
-    const session = localStorage.getItem("checkoutSessionId");
+    const code = localStorage.getItem("trackingCode");
 
-    if (!items || !session) {
+    if (!items || !code) {
       setLocation("/");
       return;
     }
 
     setCartItems(JSON.parse(items));
-    setSessionId(session);
+    setTrackingCode(code);
 
     // Load Paystack script
     const script = document.createElement("script");
@@ -70,7 +70,7 @@ export default function Checkout() {
   }, [setLocation]);
 
   const initPaymentMutation = useMutation({
-    mutationFn: async (data: { contentIds: string[]; sessionId: string }) => {
+    mutationFn: async (data: { contentIds: string[]; trackingCode: string }) => {
       return await apiRequest("POST", "/api/payment/initialize", data);
     },
   });
@@ -79,12 +79,13 @@ export default function Checkout() {
     mutationFn: async (reference: string) => {
       return await apiRequest("POST", "/api/payment/verify", { reference });
     },
-    onSuccess: (data: { purchaseId: string }) => {
+    onSuccess: (data: { purchaseId: string; trackingCode: string }) => {
       const trackingLink = `${window.location.origin}/purchase/${data.purchaseId}`;
       const total = cartItems.reduce((sum, item) => sum + item.price, 0);
       
       setPurchaseData({
         purchaseId: data.purchaseId,
+        trackingCode: data.trackingCode,
         trackingLink,
         total,
         itemCount: cartItems.length,
@@ -112,7 +113,7 @@ export default function Checkout() {
     try {
       const response = await initPaymentMutation.mutateAsync({
         contentIds: cartItems.map((item) => item.id),
-        sessionId,
+        trackingCode,
       });
 
       const handler = window.PaystackPop.setup({
@@ -156,7 +157,6 @@ export default function Checkout() {
   const proceedToDownload = () => {
     if (purchaseData) {
       localStorage.removeItem("checkoutItems");
-      localStorage.removeItem("checkoutSessionId");
       localStorage.removeItem("cart");
       setLocation(`/purchase/${purchaseData.purchaseId}`);
     }
@@ -318,23 +318,31 @@ export default function Checkout() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Tracking Link</label>
+              <label className="text-sm font-medium">Your Tracking Code</label>
               <p className="text-xs text-muted-foreground">
-                Save this link to access your downloads anytime
+                Save this code to track your order or access downloads later
               </p>
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={purchaseData?.trackingLink || ""}
+                  value={purchaseData?.trackingCode || ""}
                   readOnly
-                  className="flex-1 px-3 py-2 text-sm bg-accent/50 border border-border rounded-md"
-                  data-testid="input-tracking-link"
+                  className="flex-1 px-3 py-2 text-lg font-mono font-bold uppercase text-center bg-accent border border-border rounded-md tracking-wider"
+                  data-testid="input-tracking-code-display"
                 />
                 <Button
-                  onClick={copyTrackingLink}
+                  onClick={() => {
+                    if (purchaseData?.trackingCode) {
+                      navigator.clipboard.writeText(purchaseData.trackingCode);
+                      toast({
+                        title: "Copied!",
+                        description: "Tracking code copied to clipboard",
+                      });
+                    }
+                  }}
                   size="icon"
                   variant="outline"
-                  data-testid="button-copy-link"
+                  data-testid="button-copy-code"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>

@@ -373,25 +373,47 @@ export default function Admin() {
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1">
-                                <p className="text-xs text-muted-foreground mb-1">Tracking Link</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Tracking Code</p>
                                 <div className="flex items-center gap-2">
                                   <input
                                     type="text"
-                                    value={`${window.location.origin}/purchase/${purchase.id}`}
+                                    value={purchase.trackingCode || "N/A"}
                                     readOnly
-                                    className="flex-1 px-2 py-1 text-xs bg-accent/50 border border-border rounded"
-                                    data-testid={`input-link-${purchase.id}`}
+                                    className="flex-1 px-2 py-1 text-sm font-mono font-bold uppercase bg-accent/50 border border-border rounded text-center"
+                                    data-testid={`input-code-${purchase.id}`}
                                   />
+                                  <Button
+                                    onClick={() => {
+                                      if (purchase.trackingCode) {
+                                        navigator.clipboard.writeText(purchase.trackingCode);
+                                        toast({
+                                          title: "Copied!",
+                                          description: "Tracking code copied",
+                                        });
+                                      }
+                                    }}
+                                    size="sm"
+                                    variant="outline"
+                                    data-testid={`button-copy-code-${purchase.id}`}
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Download Link</p>
+                                <div className="flex items-center gap-2">
                                   <Button
                                     onClick={() => copyTrackingLink(purchase.id)}
                                     size="sm"
                                     variant="outline"
+                                    className="flex-1"
                                     data-testid={`button-copy-${purchase.id}`}
                                   >
                                     <Copy className="w-3 h-3 mr-1" />
-                                    Copy
+                                    Copy Link
                                   </Button>
                                   <Button
                                     onClick={() => window.open(`/purchase/${purchase.id}`, '_blank')}

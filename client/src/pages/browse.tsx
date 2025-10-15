@@ -1,18 +1,35 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CartSidebar } from "@/components/cart-sidebar";
 import { ContentCard } from "@/components/content-card";
-import { ShoppingCart, Image as ImageIcon, Video } from "lucide-react";
+import { ShoppingCart, Image as ImageIcon, Video, QrCode } from "lucide-react";
 import { type Content, type CartItem } from "@shared/schema";
 import { useLocation } from "wouter";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function Browse() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [cartOpen, setCartOpen] = useState(false);
+  const [codeDialogOpen, setCodeDialogOpen] = useState(false);
+  const [lookupCode, setLookupCode] = useState("");
+  const [trackingCode, setTrackingCode] = useState<string>(() => {
+    const saved = localStorage.getItem("trackingCode");
+    if (saved) return saved;
+    
+    // Generate new 8-character tracking code
+    const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+    localStorage.setItem("trackingCode", code);
+    return code;
+  });
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
     const saved = localStorage.getItem("cart");
     return saved ? JSON.parse(saved) : [];
@@ -51,8 +68,6 @@ export default function Browse() {
   };
 
   const handleCheckout = () => {
-    const sessionId = Math.random().toString(36).substring(7);
-    localStorage.setItem("checkoutSessionId", sessionId);
     localStorage.setItem("checkoutItems", JSON.stringify(cartItems));
     setCartItems([]);
     localStorage.removeItem("cart");
@@ -60,6 +75,47 @@ export default function Browse() {
   };
 
   const isInCart = (id: string) => cartItems.some((item) => item.id === id);
+
+  const lookupMutation = useMutation({
+    mutationFn: async (code: string) => {
+      return await apiRequest("POST", "/api/tracking/lookup", { trackingCode: code });
+    },
+    onSuccess: (data: any) => {
+      if (data.status === "completed") {
+        setLocation(`/purchase/${data.purchaseId}`);
+      } else {
+        toast({
+          title: `Order Status: ${data.status.toUpperCase()}`,
+          description: data.status === "pending" 
+            ? "Your payment is being processed. Please check back soon."
+            : data.status === "failed"
+            ? "Payment failed. Please try again or contact support."
+            : `Items: ${data.items.length} | Total: ₦${data.totalAmount}`,
+        });
+      }
+      setCodeDialogOpen(false);
+      setLookupCode("");
+    },
+    onError: () => {
+      toast({
+        title: "Invalid Code",
+        description: "The tracking code you entered is not valid.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleLookupCode = () => {
+    if (!lookupCode.trim()) {
+      toast({
+        title: "Code Required",
+        description: "Please enter a tracking code",
+        variant: "destructive",
+      });
+      return;
+    }
+    lookupMutation.mutate(lookupCode.trim().toUpperCase());
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -71,6 +127,53 @@ export default function Browse() {
             </h1>
 
             <div className="flex items-center gap-2">
+              <Dialog open={codeDialogOpen} onOpenChange={setCodeDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="hidden sm:flex"
+                    data-testid="button-have-code"
+                  >
+                    <QrCode className="w-4 h-4 mr-2" />
+                    I have a code
+                  </Button>
+                </DialogTrigger>
+                <DialogContent data-testid="dialog-tracking-code">
+                  <DialogHeader>
+                    <DialogTitle>Enter Your Tracking Code</DialogTitle>
+                    <DialogDescription>
+                      Enter the code you received to track your order or access your downloads
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="tracking-code">Tracking Code</Label>
+                      <Input
+                        id="tracking-code"
+                        value={lookupCode}
+                        onChange={(e) => setLookupCode(e.target.value.toUpperCase())}
+                        placeholder="Enter your code (e.g., ABC12345)"
+                        className="font-mono uppercase"
+                        data-testid="input-tracking-code"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleLookupCode();
+                          }
+                        }}
+                      />
+                    </div>
+                    <Button
+                      onClick={handleLookupCode}
+                      disabled={lookupMutation.isPending}
+                      className="w-full"
+                      data-testid="button-lookup-code"
+                    >
+                      {lookupMutation.isPending ? "Looking up..." : "Track Order"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <Button
                 variant="ghost"
                 size="icon"
