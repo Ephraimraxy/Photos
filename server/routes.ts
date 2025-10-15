@@ -8,11 +8,31 @@ import { randomUUID } from "crypto";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // Get all content
+  // Get all content (with optional pagination)
   app.get("/api/content", async (req, res) => {
     try {
-      const content = await storage.getAllContent();
-      res.json(content);
+      const allContent = await storage.getAllContent();
+      
+      // If pagination parameters are provided, return paginated response
+      if (req.query.page || req.query.limit) {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 100;
+        const offset = (page - 1) * limit;
+        const paginatedContent = allContent.slice(offset, offset + limit);
+        
+        return res.json({
+          data: paginatedContent,
+          pagination: {
+            page,
+            limit,
+            total: allContent.length,
+            totalPages: Math.ceil(allContent.length / limit),
+          }
+        });
+      }
+      
+      // Otherwise, return all content (backward compatible)
+      res.json(allContent);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch content" });
     }
