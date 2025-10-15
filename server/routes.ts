@@ -155,18 +155,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { contentIds, sessionId } = req.body;
+      const { contentIds, trackingCode } = req.body;
 
       if (!contentIds || !Array.isArray(contentIds) || contentIds.length === 0) {
         return res.status(400).json({ error: "Content IDs are required" });
       }
 
+      if (!trackingCode) {
+        return res.status(400).json({ error: "Tracking code is required" });
+      }
+
       const amount = contentIds.length * 200 * 100; // Paystack uses kobo
       const reference = `DOCUEDIT-${randomUUID()}`;
 
-      // Create purchase record
+      // Create purchase record with tracking code
       await storage.createPurchase({
-        sessionId,
+        trackingCode,
         paystackReference: reference,
         contentIds,
         totalAmount: contentIds.length * 200,
@@ -178,11 +182,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "https://api.paystack.co/transaction/initialize",
         {
           amount,
-          email: "customer@docueditphotos.com", // In production, this would be user's email
+          email: "customer@docueditphotos.com",
           reference,
           metadata: {
             contentIds,
-            sessionId,
+            trackingCode,
           },
         },
         {
@@ -196,6 +200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         reference,
         amount,
+        trackingCode,
         email: "customer@docueditphotos.com",
         publicKey: paystackResponse.data.data.access_code ? "" : "pk_test_dummy",
         authorizationUrl: paystackResponse.data.data.authorization_url,
@@ -206,7 +211,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Verify payment
+  // Paystack Webhook - Secure server-side verification
+  app.post("/api/payment/webhook", async (req, res) => {
+    try {
+      const hash = req.headers['x-paystack-signature'];
+      
+      if (!hash || !process.env.PAYSTACK_SECRET_KEY) {
+        return res.sendStatus(400);
+      }
+
+      const body = JSON.stringify(req.body);
+      const crypto = await import('crypto');
+      const expectedHash = crypto
+        .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+        .update(body)
+        .digest('hex');
+
+      if (hash !== expectedHash) {
+        return res.sendStatus(400);
+      }
+
+      const event = req.body;
+
+      if (event.event === 'charge.success') {
+        const reference = event.data.reference;
+        const purchase = await storage.getPurchaseByReference(reference);
+
+        if (purchase && purchase.status === 'pending') {
+          await storage.updatePurchaseStatus(purchase.id, 'completed');
+
+          // Generate download tokens (24 hour expiry)
+          const expiresAt = new Date();
+          expiresAt.setHours(expiresAt.getHours() + 24);
+
+          const tokenPromises = purchase.contentIds.map(contentId => 
+            storage.createDownloadToken({
+              purchaseId: purchase.id,
+              contentId,
+              token: randomUUID(),
+              expiresAt,
+              used: false,
+            })
+          );
+
+          await Promise.all(tokenPromises);
+        }
+      }
+
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Webhook error:', error);
+      res.sendStatus(500);
+    }
+  });
+
+  // Verify payment (client-side callback)
   app.post("/api/payment/verify", async (req, res) => {
     try {
       // Validate Paystack credentials
@@ -244,27 +303,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Purchase not found" });
       }
 
-      await storage.updatePurchaseStatus(purchase.id, "completed");
+      if (purchase.status === 'pending') {
+        await storage.updatePurchaseStatus(purchase.id, "completed");
 
-      // Generate download tokens (24 hour expiry)
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24);
+        // Generate download tokens (24 hour expiry)
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
 
-      for (const contentId of purchase.contentIds) {
-        const token = randomUUID();
-        await storage.createDownloadToken({
-          purchaseId: purchase.id,
-          contentId,
-          token,
-          expiresAt,
-          used: false,
-        });
+        const tokenPromises = purchase.contentIds.map(contentId => 
+          storage.createDownloadToken({
+            purchaseId: purchase.id,
+            contentId,
+            token: randomUUID(),
+            expiresAt,
+            used: false,
+          })
+        );
+
+        await Promise.all(tokenPromises);
       }
 
-      res.json({ purchaseId: purchase.id });
+      res.json({ purchaseId: purchase.id, trackingCode: purchase.trackingCode });
     } catch (error) {
       console.error("Payment verification error:", error);
       res.status(500).json({ error: "Failed to verify payment" });
+    }
+  });
+
+  // Lookup purchase by tracking code
+  app.post("/api/tracking/lookup", async (req, res) => {
+    try {
+      const { trackingCode } = req.body;
+
+      if (!trackingCode) {
+        return res.status(400).json({ error: "Tracking code is required" });
+      }
+
+      const purchase = await storage.getPurchaseByTrackingCode(trackingCode);
+      
+      if (!purchase) {
+        return res.status(404).json({ error: "Invalid tracking code" });
+      }
+
+      // Get content details
+      const items = await Promise.all(
+        purchase.contentIds.map(async (contentId) => {
+          const content = await storage.getContentById(contentId);
+          return {
+            id: content?.id || contentId,
+            title: content?.title || "Unknown",
+            type: content?.type || "image",
+            thumbnailUrl: `/api/content/${contentId}/preview`,
+          };
+        })
+      );
+
+      res.json({
+        purchaseId: purchase.id,
+        trackingCode: purchase.trackingCode,
+        status: purchase.status,
+        totalAmount: purchase.totalAmount,
+        items,
+        createdAt: purchase.createdAt,
+      });
+    } catch (error) {
+      console.error("Tracking lookup error:", error);
+      res.status(500).json({ error: "Failed to lookup tracking code" });
     }
   });
 
@@ -276,13 +380,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Purchase not found" });
       }
 
-      // Get content details and download tokens
+      // Get download tokens for this purchase
+      const tokens = await storage.getDownloadTokensByPurchase(purchase.id);
+
+      // Get content details with tokens
       const items = await Promise.all(
         purchase.contentIds.map(async (contentId) => {
           const content = await storage.getContentById(contentId);
-          const tokens = Array.from((storage as any).downloadTokens.values())
-            .filter((t: any) => t.purchaseId === purchase.id && t.contentId === contentId);
-          const token = tokens[0];
+          const token = tokens.find(t => t.contentId === contentId);
 
           return {
             id: content?.id || contentId,
@@ -294,11 +399,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       // Get expiry from first token
-      const firstToken = Array.from((storage as any).downloadTokens.values())
-        .find((t: any) => t.purchaseId === purchase.id);
+      const firstToken = tokens[0];
 
       res.json({
         purchaseId: purchase.id,
+        trackingCode: purchase.trackingCode,
         items,
         expiresAt: firstToken?.expiresAt || new Date(),
       });

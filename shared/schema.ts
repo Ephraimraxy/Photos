@@ -17,7 +17,7 @@ export const content = pgTable("content", {
 
 export const purchases = pgTable("purchases", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sessionId: text("session_id").notNull(),
+  trackingCode: text("tracking_code").notNull().unique(), // Unique code for customers to track their purchase
   paystackReference: text("paystack_reference").notNull().unique(),
   contentIds: text("content_ids").array().notNull(),
   totalAmount: integer("total_amount").notNull(),
@@ -73,10 +73,17 @@ export type CartItem = {
 // Payment initialization request
 export const paymentInitSchema = z.object({
   contentIds: z.array(z.string()).min(1),
-  sessionId: z.string(),
+  trackingCode: z.string(),
 });
 
 export type PaymentInitRequest = z.infer<typeof paymentInitSchema>;
+
+// Tracking code lookup request
+export const trackingCodeLookupSchema = z.object({
+  trackingCode: z.string().min(1),
+});
+
+export type TrackingCodeLookupRequest = z.infer<typeof trackingCodeLookupSchema>;
 
 // Google Drive upload request
 export const googleDriveUploadSchema = z.object({
