@@ -14,7 +14,6 @@ export default function Browse() {
   const [, setLocation] = useLocation();
   const [cartOpen, setCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    // Load cart from localStorage on mount
     const saved = localStorage.getItem("cart");
     return saved ? JSON.parse(saved) : [];
   });
@@ -24,7 +23,6 @@ export default function Browse() {
     queryKey: ["/api/content"],
   });
 
-  // Persist cart to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("cart", JSON.stringify(cartItems));
   }, [cartItems]);
@@ -37,7 +35,7 @@ export default function Browse() {
       id: item.id,
       title: item.title,
       type: item.type as "image" | "video",
-      thumbnailUrl: `/${item.watermarkedUrl}`,
+      thumbnailUrl: `/api/content/${item.id}/preview`,
       price: 200,
     };
     setCartItems((prev) => [...prev, cartItem]);
@@ -56,7 +54,6 @@ export default function Browse() {
     const sessionId = Math.random().toString(36).substring(7);
     localStorage.setItem("checkoutSessionId", sessionId);
     localStorage.setItem("checkoutItems", JSON.stringify(cartItems));
-    // Clear cart after checkout
     setCartItems([]);
     localStorage.removeItem("cart");
     setLocation("/checkout");
@@ -66,7 +63,6 @@ export default function Browse() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-background/80 border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -107,7 +103,6 @@ export default function Browse() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "images" | "videos")} className="w-full">
           <div className="flex items-center justify-between mb-8">
@@ -193,7 +188,6 @@ export default function Browse() {
         </Tabs>
       </main>
 
-      {/* Cart Sidebar */}
       <CartSidebar
         isOpen={cartOpen}
         onClose={() => setCartOpen(false)}

@@ -4,11 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Link as LinkIcon, Trash2, ArrowLeft, Image as ImageIcon, Video, Loader2 } from "lucide-react";
+import { Link as LinkIcon, Trash2, ArrowLeft, Image as ImageIcon, Video, Loader2 } from "lucide-react";
 import { type Content } from "@shared/schema";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -36,35 +35,11 @@ export default function Admin() {
   const [driveUrl, setDriveUrl] = useState("");
   const [driveTitle, setDriveTitle] = useState("");
   const [driveType, setDriveType] = useState<"image" | "video">("image");
-  const [fileToUpload, setFileToUpload] = useState<File | null>(null);
-  const [uploadTitle, setUploadTitle] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [contentToDelete, setContentToDelete] = useState<string | null>(null);
 
   const { data: content, isLoading } = useQuery<Content[]>({
     queryKey: ["/api/content"],
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      return await apiRequest("POST", "/api/content/upload", formData);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
-      toast({
-        title: "Success",
-        description: "Content uploaded successfully",
-      });
-      setFileToUpload(null);
-      setUploadTitle("");
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Upload Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
   });
 
   const driveMutation = useMutation({
@@ -109,22 +84,6 @@ export default function Admin() {
     },
   });
 
-  const handleFileUpload = () => {
-    if (!fileToUpload || !uploadTitle) {
-      toast({
-        title: "Missing Information",
-        description: "Please select a file and enter a title",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", fileToUpload);
-    formData.append("title", uploadTitle);
-    uploadMutation.mutate(formData);
-  };
-
   const handleDriveImport = () => {
     if (!driveUrl || !driveTitle) {
       toast({
@@ -153,7 +112,6 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-background/80 border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -177,137 +135,69 @@ export default function Admin() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Upload Section */}
           <div className="lg:col-span-2 space-y-6">
-            <Tabs defaultValue="direct" data-testid="tabs-upload-method">
-              <TabsList className="w-full">
-                <TabsTrigger value="direct" className="flex-1" data-testid="tab-direct-upload">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Direct Upload
-                </TabsTrigger>
-                <TabsTrigger value="drive" className="flex-1" data-testid="tab-google-drive">
-                  <LinkIcon className="w-4 h-4 mr-2" />
-                  Google Drive
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="direct" className="mt-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Upload Files</CardTitle>
-                    <CardDescription>
-                      Upload images or videos directly from your device
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="file">Select File</Label>
-                      <Input
-                        id="file"
-                        type="file"
-                        accept="image/*,video/*"
-                        onChange={(e) => setFileToUpload(e.target.files?.[0] || null)}
-                        data-testid="input-file"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="title">Title</Label>
-                      <Input
-                        id="title"
-                        value={uploadTitle}
-                        onChange={(e) => setUploadTitle(e.target.value)}
-                        placeholder="Enter content title"
-                        data-testid="input-upload-title"
-                      />
-                    </div>
-                    <Button
-                      onClick={handleFileUpload}
-                      disabled={uploadMutation.isPending || !fileToUpload || !uploadTitle}
-                      className="w-full"
-                      data-testid="button-upload"
-                    >
-                      {uploadMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload Content
-                        </>
-                      )}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="drive" className="mt-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Import from Google Drive</CardTitle>
-                    <CardDescription>
-                      Add content by providing a Google Drive file URL
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="drive-url">Google Drive URL</Label>
-                      <Input
-                        id="drive-url"
-                        value={driveUrl}
-                        onChange={(e) => setDriveUrl(e.target.value)}
-                        placeholder="https://drive.google.com/file/d/..."
-                        data-testid="input-drive-url"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="drive-title">Title</Label>
-                      <Input
-                        id="drive-title"
-                        value={driveTitle}
-                        onChange={(e) => setDriveTitle(e.target.value)}
-                        placeholder="Enter content title"
-                        data-testid="input-drive-title"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="drive-type">Content Type</Label>
-                      <Select value={driveType} onValueChange={(v) => setDriveType(v as "image" | "video")}>
-                        <SelectTrigger id="drive-type" data-testid="select-drive-type">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="image">Image</SelectItem>
-                          <SelectItem value="video">Video</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button
-                      onClick={handleDriveImport}
-                      disabled={driveMutation.isPending || !driveUrl || !driveTitle}
-                      className="w-full"
-                      data-testid="button-import-drive"
-                    >
-                      {driveMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Importing...
-                        </>
-                      ) : (
-                        <>
-                          <LinkIcon className="w-4 h-4 mr-2" />
-                          Import from Drive
-                        </>
-                      )}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+            <Card>
+              <CardHeader>
+                <CardTitle>Import from Google Drive</CardTitle>
+                <CardDescription>
+                  Add content by providing a Google Drive file URL. Your Google Drive will be used as storage.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="drive-url">Google Drive URL</Label>
+                  <Input
+                    id="drive-url"
+                    value={driveUrl}
+                    onChange={(e) => setDriveUrl(e.target.value)}
+                    placeholder="https://drive.google.com/file/d/..."
+                    data-testid="input-drive-url"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="drive-title">Title</Label>
+                  <Input
+                    id="drive-title"
+                    value={driveTitle}
+                    onChange={(e) => setDriveTitle(e.target.value)}
+                    placeholder="Enter content title"
+                    data-testid="input-drive-title"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="drive-type">Content Type</Label>
+                  <Select value={driveType} onValueChange={(v) => setDriveType(v as "image" | "video")}>
+                    <SelectTrigger id="drive-type" data-testid="select-drive-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="image">Image</SelectItem>
+                      <SelectItem value="video">Video</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={handleDriveImport}
+                  disabled={driveMutation.isPending || !driveUrl || !driveTitle}
+                  className="w-full"
+                  data-testid="button-import-drive"
+                >
+                  {driveMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <LinkIcon className="w-4 h-4 mr-2" />
+                      Import from Drive
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Stats Section */}
           <div className="space-y-6">
             <Card>
               <CardHeader>
@@ -337,11 +227,10 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* Content Management */}
         <Card className="mt-8">
           <CardHeader>
             <CardTitle>Manage Content</CardTitle>
-            <CardDescription>View and manage all uploaded content</CardDescription>
+            <CardDescription>View and manage all content from Google Drive</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -352,8 +241,8 @@ export default function Admin() {
               </div>
             ) : !content || content.length === 0 ? (
               <div className="text-center py-12" data-testid="empty-content">
-                <Upload className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-                <p className="text-muted-foreground">No content uploaded yet</p>
+                <LinkIcon className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+                <p className="text-muted-foreground">No content added yet. Import from Google Drive to get started.</p>
               </div>
             ) : (
               <div className="space-y-4" data-testid="content-list">
@@ -364,7 +253,7 @@ export default function Admin() {
                     data-testid={`content-item-${item.id}`}
                   >
                     <img
-                      src={item.thumbnailUrl || item.watermarkedUrl}
+                      src={`/api/content/${item.id}/preview`}
                       alt={item.title}
                       className="w-16 h-16 object-cover rounded-md"
                     />
@@ -372,9 +261,7 @@ export default function Admin() {
                       <h3 className="font-medium truncate" data-testid={`text-content-title-${item.id}`}>{item.title}</h3>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="outline">{item.type}</Badge>
-                        {item.googleDriveId && (
-                          <Badge variant="secondary" className="text-xs">Google Drive</Badge>
-                        )}
+                        <Badge variant="secondary" className="text-xs">Google Drive</Badge>
                       </div>
                     </div>
                     <Button
@@ -394,13 +281,12 @@ export default function Admin() {
         </Card>
       </main>
 
-      {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Content?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this content. This action cannot be undone.
+              This will remove this content from your store. The original file in Google Drive will not be affected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

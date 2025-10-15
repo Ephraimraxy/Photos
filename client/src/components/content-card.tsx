@@ -23,7 +23,7 @@ export function ContentCard({ content, onAddToCart, isInCart }: ContentCardProps
       <WatermarkOverlay>
         <div className={content.type === "image" ? "aspect-[4/3]" : "aspect-video"}>
           <img
-            src={`/${content.watermarkedUrl}`}
+            src={`/api/content/${content.id}/preview`}
             alt={content.title}
             className="w-full h-full object-cover"
             draggable={false}
