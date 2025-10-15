@@ -137,6 +137,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize payment
   app.post("/api/payment/initialize", async (req, res) => {
     try {
+      // Validate Paystack credentials
+      if (!process.env.PAYSTACK_SECRET_KEY) {
+        return res.status(500).json({ 
+          error: "Payment system not configured. Please set up Paystack credentials." 
+        });
+      }
+
       const { contentIds, sessionId } = req.body;
 
       if (!contentIds || !Array.isArray(contentIds) || contentIds.length === 0) {
@@ -191,6 +198,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Verify payment
   app.post("/api/payment/verify", async (req, res) => {
     try {
+      // Validate Paystack credentials
+      if (!process.env.PAYSTACK_SECRET_KEY) {
+        return res.status(500).json({ 
+          error: "Payment system not configured. Please set up Paystack credentials." 
+        });
+      }
+
       const { reference } = req.body;
 
       if (!reference) {
