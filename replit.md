@@ -8,6 +8,27 @@ The application enables administrators to import content from Google Drive and m
 
 ## Recent Changes
 
+### October 15, 2025 - Enhanced User Experience & Admin Features
+
+**Payment Success Flow Enhancement:**
+- Added success dialog after payment completion with tracking link, amount paid, and item count
+- Users can copy tracking link to clipboard before proceeding to downloads
+- Dialog shows payment summary with all purchase details
+- One-click copy functionality for easy link sharing
+- Cart automatically cleared after successful payment and download initiation
+
+**Admin Dashboard Improvements:**
+- Added Payment History tab with comprehensive transaction management
+- View all purchases with status, date, amount, and item count
+- Each purchase shows full tracking link with copy and open-in-new-tab options
+- Payment records sorted by date (newest first) for easy reference
+- Supports compliance and customer service workflows
+
+**Cart Enhancement:**
+- Cart already supports selecting both images and videos together
+- No restrictions on mixing content types in a single purchase
+- All items display with their respective type badges (image/video)
+
 ### October 15, 2025 - Security Fixes for Google Drive Integration
 
 **Critical Security Enhancement:**
