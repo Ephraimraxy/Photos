@@ -107,6 +107,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fields: "id,name,mimeType,size,webContentLink,thumbnailLink"
       });
 
+      // Validate file type matches requested type
+      const mimeType = fileMetadata.data.mimeType || '';
+      const isImage = mimeType.startsWith('image/');
+      const isVideo = mimeType.startsWith('video/');
+
+      if (type === 'image' && !isImage) {
+        return res.status(400).json({ 
+          error: "The selected Google Drive file is not an image. Please select an image file for image uploads." 
+        });
+      }
+
+      if (type === 'video' && !isVideo) {
+        return res.status(400).json({ 
+          error: "The selected Google Drive file is not a video. Please select a video file for video uploads." 
+        });
+      }
+
       // Get the download URL
       const response = await drive.files.get(
         { fileId, alt: 'media' },

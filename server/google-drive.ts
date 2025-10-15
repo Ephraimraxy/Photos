@@ -28,9 +28,13 @@ async function getAccessToken() {
     }
   ).then(res => res.json()).then(data => data.items?.[0]);
 
-  const accessToken = connectionSettings?.settings?.access_token || connectionSettings.settings?.oauth?.credentials?.access_token;
+  if (!connectionSettings || !connectionSettings.settings) {
+    throw new Error('Google Drive not connected');
+  }
 
-  if (!connectionSettings || !accessToken) {
+  const accessToken = connectionSettings.settings.access_token || connectionSettings.settings.oauth?.credentials?.access_token;
+
+  if (!accessToken) {
     throw new Error('Google Drive not connected');
   }
   return accessToken;
