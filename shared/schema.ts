@@ -7,10 +7,9 @@ export const content = pgTable("content", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
   type: varchar("type", { length: 10 }).notNull(), // "image" or "video"
-  originalUrl: text("original_url").notNull(),
-  watermarkedUrl: text("watermarked_url").notNull(),
-  thumbnailUrl: text("thumbnail_url"),
-  googleDriveId: text("google_drive_id"),
+  googleDriveId: text("google_drive_id").notNull(),
+  googleDriveUrl: text("google_drive_url").notNull(),
+  mimeType: text("mime_type").notNull(),
   fileSize: integer("file_size"),
   duration: integer("duration"), // for videos, in seconds
   createdAt: timestamp("created_at").defaultNow().notNull(),
