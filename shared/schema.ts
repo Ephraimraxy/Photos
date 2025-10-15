@@ -1,18 +1,89 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
+export const content = pgTable("content", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  title: text("title").notNull(),
+  type: varchar("type", { length: 10 }).notNull(), // "image" or "video"
+  originalUrl: text("original_url").notNull(),
+  watermarkedUrl: text("watermarked_url").notNull(),
+  thumbnailUrl: text("thumbnail_url"),
+  googleDriveId: text("google_drive_id"),
+  fileSize: integer("file_size"),
+  duration: integer("duration"), // for videos, in seconds
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const purchases = pgTable("purchases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: text("session_id").notNull(),
+  paystackReference: text("paystack_reference").notNull().unique(),
+  contentIds: text("content_ids").array().notNull(),
+  totalAmount: integer("total_amount").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, completed, failed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export const downloadTokens = pgTable("download_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  purchaseId: varchar("purchase_id").notNull(),
+  contentId: varchar("content_id").notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Insert schemas
+export const insertContentSchema = createInsertSchema(content).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPurchaseSchema = createInsertSchema(purchases).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDownloadTokenSchema = createInsertSchema(downloadTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Types
+export type Content = typeof content.$inferSelect;
+export type InsertContent = z.infer<typeof insertContentSchema>;
+
+export type Purchase = typeof purchases.$inferSelect;
+export type InsertPurchase = z.infer<typeof insertPurchaseSchema>;
+
+export type DownloadToken = typeof downloadTokens.$inferSelect;
+export type InsertDownloadToken = z.infer<typeof insertDownloadTokenSchema>;
+
+// Cart item type for frontend
+export type CartItem = {
+  id: string;
+  title: string;
+  type: "image" | "video";
+  thumbnailUrl: string;
+  price: number;
+};
+
+// Payment initialization request
+export const paymentInitSchema = z.object({
+  contentIds: z.array(z.string()).min(1),
+  sessionId: z.string(),
+});
+
+export type PaymentInitRequest = z.infer<typeof paymentInitSchema>;
+
+// Google Drive upload request
+export const googleDriveUploadSchema = z.object({
+  driveUrl: z.string().url(),
+  title: z.string().min(1),
+  type: z.enum(["image", "video"]),
+});
+
+export type GoogleDriveUploadRequest = z.infer<typeof googleDriveUploadSchema>;
