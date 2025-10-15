@@ -7,10 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
-import { Link as LinkIcon, Trash2, ArrowLeft, Image as ImageIcon, Video, Loader2 } from "lucide-react";
-import { type Content } from "@shared/schema";
+import { Link as LinkIcon, Trash2, ArrowLeft, Image as ImageIcon, Video, Loader2, Copy, ExternalLink, Receipt } from "lucide-react";
+import { type Content, type Purchase } from "@shared/schema";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -40,6 +41,10 @@ export default function Admin() {
 
   const { data: content, isLoading } = useQuery<Content[]>({
     queryKey: ["/api/content"],
+  });
+
+  const { data: purchases, isLoading: purchasesLoading } = useQuery<Purchase[]>({
+    queryKey: ["/api/purchases"],
   });
 
   const driveMutation = useMutation({
@@ -108,6 +113,25 @@ export default function Admin() {
       setDeleteDialogOpen(false);
       setContentToDelete(null);
     }
+  };
+
+  const copyTrackingLink = (purchaseId: string) => {
+    const link = `${window.location.origin}/purchase/${purchaseId}`;
+    navigator.clipboard.writeText(link);
+    toast({
+      title: "Copied!",
+      description: "Tracking link copied to clipboard",
+    });
+  };
+
+  const formatDate = (date: Date | string) => {
+    return new Date(date).toLocaleString('en-NG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -227,58 +251,169 @@ export default function Admin() {
           </div>
         </div>
 
-        <Card className="mt-8">
-          <CardHeader>
-            <CardTitle>Manage Content</CardTitle>
-            <CardDescription>View and manage all content from Google Drive</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-4" data-testid="loading-content">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />
-                ))}
-              </div>
-            ) : !content || content.length === 0 ? (
-              <div className="text-center py-12" data-testid="empty-content">
-                <LinkIcon className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-                <p className="text-muted-foreground">No content added yet. Import from Google Drive to get started.</p>
-              </div>
-            ) : (
-              <div className="space-y-4" data-testid="content-list">
-                {content.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-4 p-4 rounded-lg bg-accent/50 hover-elevate"
-                    data-testid={`content-item-${item.id}`}
-                  >
-                    <img
-                      src={`/api/content/${item.id}/preview`}
-                      alt={item.title}
-                      className="w-16 h-16 object-cover rounded-md"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium truncate" data-testid={`text-content-title-${item.id}`}>{item.title}</h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline">{item.type}</Badge>
-                        <Badge variant="secondary" className="text-xs">Google Drive</Badge>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(item.id)}
-                      className="text-destructive hover:text-destructive"
-                      data-testid={`button-delete-${item.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+        <Tabs defaultValue="content" className="mt-8">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="content">Content</TabsTrigger>
+            <TabsTrigger value="history">Payment History</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="content">
+            <Card>
+              <CardHeader>
+                <CardTitle>Manage Content</CardTitle>
+                <CardDescription>View and manage all content from Google Drive</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-4" data-testid="loading-content">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                ) : !content || content.length === 0 ? (
+                  <div className="text-center py-12" data-testid="empty-content">
+                    <LinkIcon className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No content added yet. Import from Google Drive to get started.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4" data-testid="content-list">
+                    {content.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-4 p-4 rounded-lg bg-accent/50 hover-elevate"
+                        data-testid={`content-item-${item.id}`}
+                      >
+                        <img
+                          src={`/api/content/${item.id}/preview`}
+                          alt={item.title}
+                          className="w-16 h-16 object-cover rounded-md"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium truncate" data-testid={`text-content-title-${item.id}`}>{item.title}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline">{item.type}</Badge>
+                            <Badge variant="secondary" className="text-xs">Google Drive</Badge>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(item.id)}
+                          className="text-destructive hover:text-destructive"
+                          data-testid={`button-delete-${item.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="history">
+            <Card>
+              <CardHeader>
+                <CardTitle>Payment History</CardTitle>
+                <CardDescription>View all completed transactions and tracking links</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {purchasesLoading ? (
+                  <div className="space-y-4" data-testid="loading-purchases">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
+                    ))}
+                  </div>
+                ) : !purchases || purchases.length === 0 ? (
+                  <div className="text-center py-12" data-testid="empty-purchases">
+                    <Receipt className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No purchases yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4" data-testid="purchases-list">
+                    {purchases.map((purchase) => (
+                      <div
+                        key={purchase.id}
+                        className="p-4 rounded-lg border border-border bg-card hover-elevate"
+                        data-testid={`purchase-item-${purchase.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Badge 
+                                variant={purchase.status === 'completed' ? 'default' : purchase.status === 'pending' ? 'secondary' : 'destructive'}
+                                data-testid={`badge-status-${purchase.id}`}
+                              >
+                                {purchase.status}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground" data-testid={`text-date-${purchase.id}`}>
+                                {formatDate(purchase.createdAt)}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Items</p>
+                                <p className="font-medium" data-testid={`text-items-${purchase.id}`}>
+                                  {purchase.contentIds.length}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Amount</p>
+                                <p className="font-semibold text-primary" data-testid={`text-amount-${purchase.id}`}>
+                                  ₦{purchase.totalAmount.toLocaleString()}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Reference</p>
+                                <p className="font-mono text-xs truncate" data-testid={`text-reference-${purchase.id}`}>
+                                  {purchase.paystackReference}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <p className="text-xs text-muted-foreground mb-1">Tracking Link</p>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={`${window.location.origin}/purchase/${purchase.id}`}
+                                    readOnly
+                                    className="flex-1 px-2 py-1 text-xs bg-accent/50 border border-border rounded"
+                                    data-testid={`input-link-${purchase.id}`}
+                                  />
+                                  <Button
+                                    onClick={() => copyTrackingLink(purchase.id)}
+                                    size="sm"
+                                    variant="outline"
+                                    data-testid={`button-copy-${purchase.id}`}
+                                  >
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    Copy
+                                  </Button>
+                                  <Button
+                                    onClick={() => window.open(`/purchase/${purchase.id}`, '_blank')}
+                                    size="sm"
+                                    variant="outline"
+                                    data-testid={`button-open-${purchase.id}`}
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </main>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

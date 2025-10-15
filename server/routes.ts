@@ -18,6 +18,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all purchases (for admin)
+  app.get("/api/purchases", async (_req, res) => {
+    try {
+      const purchases = await storage.getAllPurchases();
+      res.json(purchases);
+    } catch (error) {
+      console.error("Get purchases error:", error);
+      res.status(500).json({ error: "Failed to fetch purchases" });
+    }
+  });
+
   // Import from Google Drive (metadata only, no file downloads)
   app.post("/api/content/google-drive", async (req, res) => {
     try {

@@ -12,6 +12,7 @@ export interface IStorage {
   createPurchase(purchase: InsertPurchase): Promise<Purchase>;
   getPurchaseById(id: string): Promise<Purchase | undefined>;
   getPurchaseByReference(reference: string): Promise<Purchase | undefined>;
+  getAllPurchases(): Promise<Purchase[]>;
   updatePurchaseStatus(id: string, status: string): Promise<void>;
 
   // Download token management
@@ -74,6 +75,12 @@ export class MemStorage implements IStorage {
   async getPurchaseByReference(reference: string): Promise<Purchase | undefined> {
     return Array.from(this.purchases.values()).find(
       (p) => p.paystackReference === reference
+    );
+  }
+
+  async getAllPurchases(): Promise<Purchase[]> {
+    return Array.from(this.purchases.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
 
