@@ -1,29 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import multer from "multer";
 import axios from "axios";
 import { getUncachableGoogleDriveClient, extractFileIdFromUrl } from "./google-drive";
-import { addWatermarkToImage, addWatermarkToVideo, getWatermarkedFilename } from "./watermark";
 import { randomUUID } from "crypto";
-import path from "path";
-import fs from "fs";
-
-const upload = multer({ 
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
-});
-
-// Ensure uploads directories exist
-const uploadsDir = path.join(process.cwd(), "uploads");
-const originalsDir = path.join(uploadsDir, "originals");
-const watermarkedDir = path.join(uploadsDir, "watermarked");
-
-[uploadsDir, originalsDir, watermarkedDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
@@ -37,55 +17,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload content directly
-  app.post("/api/content/upload", upload.single("file"), async (req, res) => {
-    try {
-      if (!req.file || !req.body.title) {
-        return res.status(400).json({ error: "File and title are required" });
-      }
-
-      const file = req.file;
-      const title = req.body.title;
-      const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
-      
-      // Save original file to secure directory
-      const filename = `${randomUUID()}${path.extname(file.originalname)}`;
-      const originalPath = path.join(originalsDir, filename);
-      fs.writeFileSync(originalPath, file.buffer);
-
-      // Create watermarked version
-      const watermarkedFilename = getWatermarkedFilename(filename);
-      const watermarkedPath = path.join(watermarkedDir, watermarkedFilename);
-      let actualWatermarkedPath = watermarkedPath;
-
-      if (fileType === "image") {
-        await addWatermarkToImage(originalPath, watermarkedPath);
-      } else {
-        // For videos, get the thumbnail path
-        actualWatermarkedPath = await addWatermarkToVideo(originalPath, watermarkedPath);
-      }
-
-      const watermarkedFilenameToUse = path.basename(actualWatermarkedPath);
-
-      const content = await storage.createContent({
-        title,
-        type: fileType,
-        originalUrl: `uploads/originals/${filename}`,
-        watermarkedUrl: `uploads/watermarked/${watermarkedFilenameToUse}`,
-        thumbnailUrl: `uploads/watermarked/${watermarkedFilenameToUse}`,
-        googleDriveId: null,
-        fileSize: file.size,
-        duration: null,
-      });
-
-      res.json(content);
-    } catch (error) {
-      console.error("Upload error:", error);
-      res.status(500).json({ error: "Upload failed" });
-    }
-  });
-
-  // Import from Google Drive
+  // Import from Google Drive (metadata only, no file downloads)
   app.post("/api/content/google-drive", async (req, res) => {
     try {
       const { driveUrl, title, type } = req.body;
@@ -104,7 +36,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get file metadata
       const fileMetadata = await drive.files.get({
         fileId,
-        fields: "id,name,mimeType,size,webContentLink,thumbnailLink"
+        fields: "id,name,mimeType,size,webContentLink,webViewLink,thumbnailLink,videoMediaMetadata"
       });
 
       // Validate file type matches requested type
@@ -124,40 +56,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Get the download URL
-      const response = await drive.files.get(
-        { fileId, alt: 'media' },
-        { responseType: 'arraybuffer' }
-      );
-
-      // Save original file to secure directory
-      const filename = `${randomUUID()}${path.extname(fileMetadata.data.name || '')}`;
-      const originalPath = path.join(originalsDir, filename);
-      fs.writeFileSync(originalPath, Buffer.from(response.data as ArrayBuffer));
-
-      // Create watermarked version
-      const watermarkedFilename = getWatermarkedFilename(filename);
-      const watermarkedPath = path.join(watermarkedDir, watermarkedFilename);
-      let actualWatermarkedPath = watermarkedPath;
-
-      if (type === "image") {
-        await addWatermarkToImage(originalPath, watermarkedPath);
-      } else {
-        // For videos, get the thumbnail path
-        actualWatermarkedPath = await addWatermarkToVideo(originalPath, watermarkedPath);
-      }
-
-      const watermarkedFilenameToUse = path.basename(actualWatermarkedPath);
-
+      // Store metadata only (no file download)
       const content = await storage.createContent({
         title,
         type,
-        originalUrl: `uploads/originals/${filename}`,
-        watermarkedUrl: `uploads/watermarked/${watermarkedFilenameToUse}`,
-        thumbnailUrl: `uploads/watermarked/${watermarkedFilenameToUse}`,
         googleDriveId: fileId,
+        googleDriveUrl: fileMetadata.data.webViewLink || driveUrl,
+        mimeType: mimeType,
         fileSize: parseInt(fileMetadata.data.size || "0"),
-        duration: null,
+        duration: fileMetadata.data.videoMediaMetadata?.durationMillis 
+          ? Math.floor(parseInt(fileMetadata.data.videoMediaMetadata.durationMillis) / 1000)
+          : null,
       });
 
       res.json(content);
@@ -167,27 +76,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete content
-  app.delete("/api/content/:id", async (req, res) => {
+  // Proxy endpoint to serve watermarked preview from Google Drive
+  app.get("/api/content/:id/preview", async (req, res) => {
     try {
       const content = await storage.getContentById(req.params.id);
       if (!content) {
         return res.status(404).json({ error: "Content not found" });
       }
 
-      // Delete original and watermarked files
-      if (content.originalUrl.startsWith("uploads/originals/")) {
-        const originalPath = path.join(process.cwd(), content.originalUrl);
-        if (fs.existsSync(originalPath)) {
-          fs.unlinkSync(originalPath);
+      const drive = await getUncachableGoogleDriveClient();
+
+      // Get thumbnail or file for preview
+      if (content.type === "image") {
+        // For images, get the file and add watermark overlay (client-side)
+        const response = await drive.files.get(
+          { fileId: content.googleDriveId, alt: 'media' },
+          { responseType: 'arraybuffer' }
+        );
+
+        res.set('Content-Type', content.mimeType);
+        res.send(Buffer.from(response.data as ArrayBuffer));
+      } else {
+        // For videos, get thumbnail
+        const fileMetadata = await drive.files.get({
+          fileId: content.googleDriveId,
+          fields: "thumbnailLink"
+        });
+
+        if (fileMetadata.data.thumbnailLink) {
+          // Redirect to Google's thumbnail
+          res.redirect(fileMetadata.data.thumbnailLink);
+        } else {
+          res.status(404).json({ error: "Thumbnail not available" });
         }
       }
+    } catch (error) {
+      console.error("Preview error:", error);
+      res.status(500).json({ error: "Failed to load preview" });
+    }
+  });
 
-      if (content.watermarkedUrl.startsWith("uploads/watermarked/")) {
-        const watermarkedPath = path.join(process.cwd(), content.watermarkedUrl);
-        if (fs.existsSync(watermarkedPath)) {
-          fs.unlinkSync(watermarkedPath);
-        }
+  // Delete content
+  app.delete("/api/content/:id", async (req, res) => {
+    try {
+      const content = await storage.getContentById(req.params.id);
+      if (!content) {
+        return res.status(404).json({ error: "Content not found" });
       }
 
       await storage.deleteContent(req.params.id);
@@ -242,7 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reference,
         amount,
         email: "customer@docueditphotos.com",
-        publicKey: paystackResponse.data.data.access_code ? "" : "pk_test_dummy", // Paystack will handle this
+        publicKey: paystackResponse.data.data.access_code ? "" : "pk_test_dummy",
         authorizationUrl: paystackResponse.data.data.authorization_url,
       });
     } catch (error) {
@@ -346,7 +280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Download content (requires valid token)
+  // Download content from Google Drive (requires valid token)
   app.get("/api/download/:token", async (req, res) => {
     try {
       const downloadToken = await storage.getDownloadToken(req.params.token);
@@ -368,32 +302,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Content not found" });
       }
 
-      // Send original file (secured behind token)
-      const filepath = path.join(process.cwd(), content.originalUrl);
-      if (!fs.existsSync(filepath)) {
-        return res.status(404).json({ error: "File not found" });
-      }
+      const drive = await getUncachableGoogleDriveClient();
 
-      res.download(filepath, content.title);
+      // Get file metadata for filename
+      const fileMetadata = await drive.files.get({
+        fileId: content.googleDriveId,
+        fields: "name"
+      });
+
+      // Download from Google Drive
+      const response = await drive.files.get(
+        { fileId: content.googleDriveId, alt: 'media' },
+        { responseType: 'arraybuffer' }
+      );
+
+      // Mark token as used
+      await storage.markTokenAsUsed(req.params.token);
+
+      // Send file
+      res.set('Content-Type', content.mimeType);
+      res.set('Content-Disposition', `attachment; filename="${fileMetadata.data.name || content.title}"`);
+      res.send(Buffer.from(response.data as ArrayBuffer));
     } catch (error) {
       console.error("Download error:", error);
       res.status(500).json({ error: "Download failed" });
     }
-  });
-
-  // Serve only watermarked files publicly
-  app.use("/uploads/watermarked", (req, res) => {
-    const filepath = path.join(watermarkedDir, path.basename(req.path));
-    if (fs.existsSync(filepath)) {
-      res.sendFile(filepath);
-    } else {
-      res.status(404).json({ error: "File not found" });
-    }
-  });
-
-  // Block direct access to originals
-  app.use("/uploads/originals", (req, res) => {
-    res.status(403).json({ error: "Unauthorized access" });
   });
 
   const httpServer = createServer(app);
