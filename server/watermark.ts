@@ -8,7 +8,6 @@ export async function addWatermarkToImage(inputPath: string, outputPath: string)
   const width = metadata.width || 1000;
   const height = metadata.height || 1000;
 
-  // Create watermark SVG
   const watermarkSvg = `
     <svg width="${width}" height="${height}">
       <defs>
@@ -43,15 +42,50 @@ export async function addWatermarkToImage(inputPath: string, outputPath: string)
     .toFile(outputPath);
 }
 
+export async function addWatermarkToImageBuffer(imageBuffer: Buffer): Promise<Buffer> {
+  const image = sharp(imageBuffer);
+  const metadata = await image.metadata();
+
+  const width = metadata.width || 1000;
+  const height = metadata.height || 1000;
+
+  const watermarkSvg = `
+    <svg width="${width}" height="${height}">
+      <defs>
+        <pattern id="watermark" x="0" y="0" width="${width}" height="${height}" patternUnits="userSpaceOnUse">
+          <text
+            x="${width / 2}"
+            y="${height / 2}"
+            font-family="Arial, sans-serif"
+            font-size="${Math.max(width, height) / 15}"
+            font-weight="bold"
+            fill="white"
+            fill-opacity="0.3"
+            text-anchor="middle"
+            transform="rotate(-45 ${width / 2} ${height / 2})"
+          >
+            DOCUEDIT PHOTOS
+          </text>
+        </pattern>
+      </defs>
+      <rect width="${width}" height="${height}" fill="url(#watermark)"/>
+    </svg>
+  `;
+
+  return await image
+    .composite([
+      {
+        input: Buffer.from(watermarkSvg),
+        blend: "over",
+      },
+    ])
+    .jpeg({ quality: 70 })
+    .toBuffer();
+}
+
 export async function addWatermarkToVideo(inputPath: string, outputPath: string): Promise<string> {
-  // For videos, create a watermarked thumbnail/poster image instead of exposing the video
-  // This ensures the original video is NOT publicly accessible
-  
-  // Output will be a JPG thumbnail with watermark
   const thumbnailPath = outputPath.replace(/\.(mp4|webm|mov)$/i, '.jpg');
   
-  // Create a watermarked preview image
-  // In production, you'd use ffmpeg to extract a frame and watermark it
   const placeholderSvg = `
     <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
       <rect width="100%" height="100%" fill="#1a1a1a"/>
@@ -86,7 +120,6 @@ export async function addWatermarkToVideo(inputPath: string, outputPath: string)
     .jpeg({ quality: 80 })
     .toFile(thumbnailPath);
     
-  // Return the thumbnail path (without the original video being copied)
   return thumbnailPath;
 }
 

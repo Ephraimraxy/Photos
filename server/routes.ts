@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import axios from "axios";
 import { getUncachableGoogleDriveClient, extractFileIdFromUrl } from "./google-drive";
+import { addWatermarkToImageBuffer } from "./watermark";
 import { randomUUID } from "crypto";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -86,18 +87,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const drive = await getUncachableGoogleDriveClient();
 
-      // Get thumbnail or file for preview
       if (content.type === "image") {
-        // For images, get the file and add watermark overlay (client-side)
+        // For images, fetch from Google Drive and apply watermark
         const response = await drive.files.get(
           { fileId: content.googleDriveId, alt: 'media' },
           { responseType: 'arraybuffer' }
         );
 
-        res.set('Content-Type', content.mimeType);
-        res.send(Buffer.from(response.data as ArrayBuffer));
+        const imageBuffer = Buffer.from(response.data as ArrayBuffer);
+        const watermarkedBuffer = await addWatermarkToImageBuffer(imageBuffer);
+
+        res.set('Content-Type', 'image/jpeg');
+        res.send(watermarkedBuffer);
       } else {
-        // For videos, get thumbnail
+        // For videos, get thumbnail from Google Drive
         const fileMetadata = await drive.files.get({
           fileId: content.googleDriveId,
           fields: "thumbnailLink"
