@@ -6,6 +6,27 @@ DOCUEDIT PHOTOS is a premium digital content marketplace for purchasing and down
 
 The application enables administrators to import content from Google Drive and manage their digital catalog, while customers can browse, add items to cart, complete purchases, and access their purchased content through time-limited download tokens.
 
+## Recent Changes
+
+### October 15, 2025 - Security Fixes for Google Drive Integration
+
+**Critical Security Enhancement:**
+- Fixed preview endpoint to apply watermarks server-side before serving images from Google Drive
+- Previously, the preview endpoint exposed original full-resolution images without protection
+- Now all images are fetched from Google Drive, watermarked using Sharp, and served as JPEG with reduced quality (70%)
+- Video previews continue to use Google's thumbnails instead of exposing actual video files
+
+**Payment System Improvements:**
+- Added Paystack credentials validation to prevent API calls with undefined bearer tokens
+- Payment initialization and verification now fail fast with descriptive errors if PAYSTACK_SECRET_KEY is missing
+- Eliminates 401 errors from attempting Paystack requests with empty authorization headers
+
+**Security Status:**
+- ✅ Preview endpoint properly watermarks all images
+- ✅ Original Google Drive files only accessible after purchase via download tokens
+- ✅ No direct Google Drive URLs exposed in preview responses
+- ✅ Payment system validates credentials before external API calls
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
