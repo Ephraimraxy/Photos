@@ -5,11 +5,19 @@ import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ShoppingCart, Loader2 } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Loader2, CheckCircle2, Copy, Download } from "lucide-react";
 import { type CartItem } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 declare global {
   interface Window {
@@ -34,6 +42,8 @@ export default function Checkout() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [paystackLoaded, setPaystackLoaded] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [purchaseData, setPurchaseData] = useState<{ purchaseId: string; trackingLink: string; total: number; itemCount: number } | null>(null);
 
   useEffect(() => {
     const items = localStorage.getItem("checkoutItems");
@@ -70,9 +80,16 @@ export default function Checkout() {
       return await apiRequest("POST", "/api/payment/verify", { reference });
     },
     onSuccess: (data: { purchaseId: string }) => {
-      localStorage.removeItem("checkoutItems");
-      localStorage.removeItem("checkoutSessionId");
-      setLocation(`/purchase/${data.purchaseId}`);
+      const trackingLink = `${window.location.origin}/purchase/${data.purchaseId}`;
+      const total = cartItems.reduce((sum, item) => sum + item.price, 0);
+      
+      setPurchaseData({
+        purchaseId: data.purchaseId,
+        trackingLink,
+        total,
+        itemCount: cartItems.length,
+      });
+      setShowSuccessDialog(true);
     },
     onError: (error: Error) => {
       toast({
@@ -125,6 +142,25 @@ export default function Checkout() {
   };
 
   const total = cartItems.reduce((sum, item) => sum + item.price, 0);
+
+  const copyTrackingLink = () => {
+    if (purchaseData?.trackingLink) {
+      navigator.clipboard.writeText(purchaseData.trackingLink);
+      toast({
+        title: "Copied!",
+        description: "Tracking link copied to clipboard",
+      });
+    }
+  };
+
+  const proceedToDownload = () => {
+    if (purchaseData) {
+      localStorage.removeItem("checkoutItems");
+      localStorage.removeItem("checkoutSessionId");
+      localStorage.removeItem("cart");
+      setLocation(`/purchase/${purchaseData.purchaseId}`);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -247,6 +283,77 @@ export default function Checkout() {
           </div>
         </div>
       </main>
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-payment-success">
+          <DialogHeader>
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
+                <CheckCircle2 className="w-10 h-10 text-green-500" data-testid="icon-success" />
+              </div>
+            </div>
+            <DialogTitle className="text-center text-2xl" data-testid="text-success-title">
+              Payment Successful!
+            </DialogTitle>
+            <DialogDescription className="text-center" data-testid="text-success-description">
+              Your purchase has been completed successfully
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
+                <span className="text-sm text-muted-foreground">Items Purchased</span>
+                <span className="font-semibold" data-testid="text-success-item-count">
+                  {purchaseData?.itemCount}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
+                <span className="text-sm text-muted-foreground">Amount Paid</span>
+                <span className="font-bold text-primary" data-testid="text-success-amount">
+                  ₦{purchaseData?.total.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tracking Link</label>
+              <p className="text-xs text-muted-foreground">
+                Save this link to access your downloads anytime
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={purchaseData?.trackingLink || ""}
+                  readOnly
+                  className="flex-1 px-3 py-2 text-sm bg-accent/50 border border-border rounded-md"
+                  data-testid="input-tracking-link"
+                />
+                <Button
+                  onClick={copyTrackingLink}
+                  size="icon"
+                  variant="outline"
+                  data-testid="button-copy-link"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              onClick={proceedToDownload}
+              className="w-full"
+              data-testid="button-proceed-download"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Proceed to Download
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
