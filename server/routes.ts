@@ -189,13 +189,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reference = `DOCUEDIT-${randomUUID()}`;
 
       // Create purchase record with tracking code
-      await storage.createPurchase({
-        trackingCode,
-        paystackReference: reference,
-        contentIds,
-        totalAmount: contentIds.length * 200,
-        status: "pending",
-      });
+      try {
+        await storage.createPurchase({
+          trackingCode,
+          paystackReference: reference,
+          contentIds,
+          totalAmount: contentIds.length * 200,
+          status: "pending",
+        });
+      } catch (dbError: any) {
+        // Handle duplicate tracking code error
+        if (dbError.code === '23505' || dbError.message?.includes('unique constraint') || dbError.message?.includes('duplicate key')) {
+          return res.status(409).json({ 
+            error: "This tracking code has already been used. Please refresh and try again.",
+            code: "DUPLICATE_TRACKING_CODE"
+          });
+        }
+        throw dbError;
+      }
 
       // Initialize Paystack payment
       const paystackResponse = await axios.post(

@@ -73,6 +73,19 @@ export default function Checkout() {
     mutationFn: async (data: { contentIds: string[]; trackingCode: string }) => {
       return await apiRequest("POST", "/api/payment/initialize", data);
     },
+    onError: (error: any) => {
+      // Handle duplicate tracking code error
+      if (error.code === "DUPLICATE_TRACKING_CODE" || error.message?.includes("tracking code")) {
+        // Generate new tracking code
+        const newCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        localStorage.setItem("trackingCode", newCode);
+        setTrackingCode(newCode);
+        toast({
+          title: "Session Refreshed",
+          description: "Please try your payment again.",
+        });
+      }
+    },
   });
 
   const verifyPaymentMutation = useMutation({
@@ -91,6 +104,10 @@ export default function Checkout() {
         itemCount: cartItems.length,
       });
       setShowSuccessDialog(true);
+      
+      // Clear tracking code state and storage after successful purchase
+      localStorage.removeItem("trackingCode");
+      setTrackingCode("");
     },
     onError: (error: Error) => {
       toast({
@@ -98,6 +115,10 @@ export default function Checkout() {
         description: error.message,
         variant: "destructive",
       });
+      // Generate new tracking code on error to allow retry
+      const newCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+      localStorage.setItem("trackingCode", newCode);
+      setTrackingCode(newCode);
     },
   });
 
@@ -156,8 +177,15 @@ export default function Checkout() {
 
   const proceedToDownload = () => {
     if (purchaseData) {
+      // Clear all purchase-related data
       localStorage.removeItem("checkoutItems");
       localStorage.removeItem("cart");
+      localStorage.removeItem("trackingCode");
+      
+      // Clear state for next purchase
+      setTrackingCode("");
+      setCartItems([]);
+      
       setLocation(`/purchase/${purchaseData.purchaseId}`);
     }
   };
