@@ -1,0 +1,43 @@
+[build]
+  # Build command for client-side only
+  command = "npm run build:client"
+  
+  # Directory where the built files are located
+  publish = "dist/public"
+  
+  # Base directory (where package.json is located)
+  base = "."
+
+[build.environment]
+  # Node.js version
+  NODE_VERSION = "18"
+  
+  # Build environment
+  NODE_ENV = "production"
+
+# Redirect rules for SPA (Single Page Application)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers for security and performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Cache static assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# API proxy (if you want to proxy API calls to your backend)
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://your-backend-url.com/api/:splat"
+#   status = 200
