@@ -21,7 +21,7 @@
 # Functions configuration for serverless functions
 [functions]
   # Directory for Netlify Functions
-  directory = "server"
+  directory = "netlify/functions"
 
 # Redirects for SPA routing
 [[redirects]]
