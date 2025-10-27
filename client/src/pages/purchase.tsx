@@ -24,10 +24,32 @@ export default function Purchase() {
   const [, params] = useRoute("/purchase/:id");
   const purchaseId = params?.id;
   const [timeLeft, setTimeLeft] = useState<number>(0);
+  const { toast } = useToast();
 
-  const { data: purchase, isLoading } = useQuery<PurchaseData>({
+  const { data: purchase, isLoading, refetch } = useQuery<PurchaseData>({
     queryKey: ["/api/purchase", purchaseId],
     enabled: !!purchaseId,
+  });
+
+  const completePurchaseMutation = useMutation({
+    mutationFn: async (purchaseId: string) => {
+      const response = await apiRequest("POST", `/api/purchase/${purchaseId}/complete`);
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Purchase completed successfully! Download links are now available.",
+      });
+      refetch();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   useEffect(() => {
@@ -105,6 +127,42 @@ export default function Purchase() {
               </div>
             </CardContent>
           </Card>
+        ) : !purchase ? (
+          /* Purchase not found or not completed */
+          <div className="space-y-6">
+            <Card className="border-yellow-500/20 bg-yellow-500/5">
+              <CardContent className="py-6">
+                <div className="flex items-start gap-4">
+                  <AlertCircle className="w-6 h-6 text-yellow-500 shrink-0 mt-1" />
+                  <div className="flex-1">
+                    <h2 className="text-xl font-semibold mb-2">
+                      Purchase Processing
+                    </h2>
+                    <p className="text-muted-foreground mb-4">
+                      Your payment is being processed. This may take a few minutes. If you've already paid, you can manually complete the purchase below.
+                    </p>
+                    <Button
+                      onClick={() => completePurchaseMutation.mutate(purchaseId!)}
+                      disabled={completePurchaseMutation.isPending}
+                      className="w-full"
+                    >
+                      {completePurchaseMutation.isPending ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Completing Purchase...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 mr-2" />
+                          Complete Purchase Manually
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         ) : (
           <div className="space-y-6">
             {/* Success Message */}

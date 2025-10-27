@@ -648,16 +648,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update purchase status
       const purchase = await storage.getPurchaseByReference(reference);
       if (!purchase) {
+        console.log("Purchase not found for reference:", reference);
         return res.status(404).json({ error: "Purchase not found" });
       }
 
+      console.log("Found purchase:", purchase.id, "Status:", purchase.status);
+
       if (purchase.status === 'pending') {
+        console.log("Updating purchase status to completed...");
         await storage.updatePurchaseStatus(purchase.id, "completed");
 
         // Generate download tokens (24 hour expiry)
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 24);
 
+        console.log("Generating download tokens for", purchase.contentIds.length, "items");
         const tokenPromises = purchase.contentIds.map(contentId => 
           storage.createDownloadToken({
             purchaseId: purchase.id,
@@ -669,6 +674,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
 
         await Promise.all(tokenPromises);
+        console.log("Download tokens generated successfully");
+      } else {
+        console.log("Purchase already completed, skipping token generation");
       }
 
       res.json({ purchaseId: purchase.id, trackingCode: purchase.trackingCode });

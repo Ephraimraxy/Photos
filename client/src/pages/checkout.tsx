@@ -90,6 +90,7 @@ export default function Checkout() {
       return await response.json();
     },
     onSuccess: (data: { purchaseId: string; trackingCode: string }) => {
+      console.log("Payment verification successful:", data);
       const trackingLink = `${window.location.origin}/purchase/${data.purchaseId}`;
       const total = cartItems.reduce((sum, item) => sum + item.price, 0);
       
@@ -105,6 +106,18 @@ export default function Checkout() {
       // Clear tracking code state and storage after successful purchase
       localStorage.removeItem("trackingCode");
       setTrackingCode("");
+      
+      // Start countdown for redirect
+      let countdown = 3;
+      setRedirectCountdown(countdown);
+      const countdownInterval = setInterval(() => {
+        countdown--;
+        setRedirectCountdown(countdown);
+        if (countdown <= 0) {
+          clearInterval(countdownInterval);
+          setLocation(`/purchase/${data.purchaseId}`);
+        }
+      }, 1000);
     },
     onError: (error: Error) => {
       toast({
@@ -142,6 +155,7 @@ export default function Checkout() {
     
     if (reference) {
       console.log("Payment reference found:", reference);
+      console.log("Starting payment verification...");
       // Verify the payment
       verifyPaymentMutation.mutate(reference);
       // Clean up URL
@@ -525,15 +539,27 @@ export default function Checkout() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button
-              onClick={proceedToDownload}
-              className="w-full"
-              data-testid="button-proceed-download"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Proceed to Download
-            </Button>
+          <DialogFooter className="flex-col gap-2">
+            <p className="text-sm text-primary text-center">
+              Redirecting to download page in {redirectCountdown} seconds...
+            </p>
+            <div className="flex gap-2 w-full">
+              <Button
+                onClick={proceedToDownload}
+                className="flex-1"
+                data-testid="button-proceed-download"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Go to Downloads Now
+              </Button>
+              <Button
+                onClick={() => setShowSuccessDialog(false)}
+                variant="outline"
+                className="flex-1"
+              >
+                Close
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
