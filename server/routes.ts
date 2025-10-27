@@ -713,6 +713,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalAmount: purchase.totalAmount,
         items,
         createdAt: purchase.createdAt,
+        userName: purchase.userName,
+        uniqueId: purchase.uniqueId,
+        paystackReference: purchase.paystackReference,
       });
     } catch (error) {
       console.error("Tracking lookup error:", error);

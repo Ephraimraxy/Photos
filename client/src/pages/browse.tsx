@@ -160,25 +160,8 @@ export default function Browse() {
       return await response.json();
     },
     onSuccess: (data: any) => {
-      if (data.status === "completed") {
-        // Redirect to purchase page if completed
-        setLocation(`/purchase/${data.purchaseId}`);
-      } else if (data.status === "pending") {
-        // Show pending message
-        toast({
-          title: "Payment Pending",
-          description: "Your payment is being processed. Please check back in a few minutes.",
-          variant: "default",
-        });
-      } else {
-        // Show other status
-        toast({
-          title: `Order Status: ${data.status.toUpperCase()}`,
-          description: data.items && data.items.length > 0 
-            ? `Items: ${data.items.length} | Total: ₦${data.totalAmount}`
-            : "Order details not available",
-        });
-      }
+      // Always redirect to tracking page for detailed view
+      setLocation(`/tracking?code=${data.trackingCode}`);
       setCodeDialogOpen(false);
       setLookupCode("");
     },
