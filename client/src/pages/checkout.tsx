@@ -85,7 +85,8 @@ export default function Checkout() {
 
   const initPaymentMutation = useMutation({
     mutationFn: async (data: { contentIds: string[]; trackingCode: string; userName: string; couponCode?: string }) => {
-      return await apiRequest("POST", "/api/payment/initialize", data);
+      const response = await apiRequest("POST", "/api/payment/initialize", data);
+      return await response.json();
     },
     onError: (error: any) => {
       console.error("Payment initialization error:", error);

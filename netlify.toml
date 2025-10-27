@@ -7,10 +7,12 @@
 
 [build.environment]
   # Node.js version
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"
   
-  # Environment variables (these will be set in Netlify dashboard)
-  NODE_ENV = "production"
+  # Force npm to install devDependencies during build
+  NPM_FLAGS = "--include=dev"
+  
+  # Environment variables for runtime (these will be set in Netlify dashboard)
   PORT = "5000"
 
 # Functions configuration for serverless functions

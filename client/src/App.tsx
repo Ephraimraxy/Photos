@@ -59,10 +59,11 @@ function App() {
     // Enhanced right-click protection
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest("[data-testid^='watermark-']") || 
+      if (target && target instanceof Element && (
+          target.closest("[data-testid^='watermark-']") || 
           target.tagName === "IMG" || 
           target.closest('.content-card') ||
-          target.closest('.preview-container')) {
+          target.closest('.preview-container'))) {
         e.preventDefault();
         alert("Right-click is disabled for security");
       }
@@ -71,7 +72,7 @@ function App() {
     // Prevent drag and drop
     const handleDragStart = (e: DragEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === "IMG" || target.closest('.content-card')) {
+      if (target && target instanceof Element && (target.tagName === "IMG" || target.closest('.content-card'))) {
         e.preventDefault();
       }
     };
@@ -79,7 +80,7 @@ function App() {
     // Prevent text selection on images
     const handleSelectStart = (e: Event) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === "IMG" || target.closest('.content-card')) {
+      if (target && target instanceof Element && (target.tagName === "IMG" || target.closest('.content-card'))) {
         e.preventDefault();
       }
     };
