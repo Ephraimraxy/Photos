@@ -54,35 +54,7 @@ export default function Checkout() {
     code: string;
   } | null>(null);
 
-  useEffect(() => {
-    const items = localStorage.getItem("checkoutItems");
-    const code = localStorage.getItem("trackingCode");
-    const coupon = localStorage.getItem("activeCoupon");
-
-    if (!items || !code) {
-      setLocation("/");
-      return;
-    }
-
-    setCartItems(JSON.parse(items));
-    setTrackingCode(code);
-    
-    if (coupon) {
-      setActiveCoupon(JSON.parse(coupon));
-    }
-
-    // Load Paystack script
-    const script = document.createElement("script");
-    script.src = "https://js.paystack.co/v1/inline.js";
-    script.async = true;
-    script.onload = () => setPaystackLoaded(true);
-    document.body.appendChild(script);
-
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, [setLocation]);
-
+  // Initialize payment mutation
   const initPaymentMutation = useMutation({
     mutationFn: async (data: { contentIds: string[]; trackingCode: string; userName: string; couponCode?: string }) => {
       const response = await apiRequest("POST", "/api/payment/initialize", data);
@@ -114,7 +86,8 @@ export default function Checkout() {
 
   const verifyPaymentMutation = useMutation({
     mutationFn: async (reference: string) => {
-      return await apiRequest("POST", "/api/payment/verify", { reference });
+      const response = await apiRequest("POST", "/api/payment/verify", { reference });
+      return await response.json();
     },
     onSuccess: (data: { purchaseId: string; trackingCode: string }) => {
       const trackingLink = `${window.location.origin}/purchase/${data.purchaseId}`;
@@ -145,6 +118,47 @@ export default function Checkout() {
       setTrackingCode(newCode);
     },
   });
+
+  useEffect(() => {
+    const items = localStorage.getItem("checkoutItems");
+    const code = localStorage.getItem("trackingCode");
+    const coupon = localStorage.getItem("activeCoupon");
+
+    if (!items || !code) {
+      setLocation("/");
+      return;
+    }
+
+    setCartItems(JSON.parse(items));
+    setTrackingCode(code);
+    
+    if (coupon) {
+      setActiveCoupon(JSON.parse(coupon));
+    }
+
+    // Check if returning from Paystack payment
+    const urlParams = new URLSearchParams(window.location.search);
+    const reference = urlParams.get('reference');
+    
+    if (reference) {
+      console.log("Payment reference found:", reference);
+      // Verify the payment
+      verifyPaymentMutation.mutate(reference);
+      // Clean up URL
+      window.history.replaceState({}, '', '/checkout');
+    }
+
+    // Load Paystack script
+    const script = document.createElement("script");
+    script.src = "https://js.paystack.co/v1/inline.js";
+    script.async = true;
+    script.onload = () => setPaystackLoaded(true);
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, [setLocation, verifyPaymentMutation]);
 
   const handlePayment = async () => {
     if (!paystackLoaded) {
