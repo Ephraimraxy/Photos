@@ -3,7 +3,7 @@
   command = "npm run build:client"
   
   # Base directory for the build
-  base = "client"
+  base = "."
   
   # Directory to publish
   publish = "client/dist"
