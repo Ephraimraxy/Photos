@@ -156,19 +156,27 @@ export default function Browse() {
 
   const lookupMutation = useMutation({
     mutationFn: async (code: string) => {
-      return await apiRequest("POST", "/api/tracking/lookup", { trackingCode: code });
+      const response = await apiRequest("POST", "/api/tracking/lookup", { trackingCode: code });
+      return await response.json();
     },
     onSuccess: (data: any) => {
       if (data.status === "completed") {
+        // Redirect to purchase page if completed
         setLocation(`/purchase/${data.purchaseId}`);
+      } else if (data.status === "pending") {
+        // Show pending message
+        toast({
+          title: "Payment Pending",
+          description: "Your payment is being processed. Please check back in a few minutes.",
+          variant: "default",
+        });
       } else {
+        // Show other status
         toast({
           title: `Order Status: ${data.status.toUpperCase()}`,
-          description: data.status === "pending" 
-            ? "Your payment is being processed. Please check back soon."
-            : data.status === "failed"
-            ? "Payment failed. Please try again or contact support."
-            : `Items: ${data.items.length} | Total: ₦${data.totalAmount}`,
+          description: data.items && data.items.length > 0 
+            ? `Items: ${data.items.length} | Total: ₦${data.totalAmount}`
+            : "Order details not available",
         });
       }
       setCodeDialogOpen(false);
