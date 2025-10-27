@@ -720,6 +720,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manual completion endpoint for pending purchases (for testing)
+  app.post("/api/purchase/:id/complete", async (req, res) => {
+    try {
+      const purchase = await storage.getPurchaseById(req.params.id);
+      if (!purchase) {
+        return res.status(404).json({ error: "Purchase not found" });
+      }
+
+      if (purchase.status === 'pending') {
+        await storage.updatePurchaseStatus(purchase.id, "completed");
+
+        // Generate download tokens (24 hour expiry)
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+
+        const tokenPromises = purchase.contentIds.map(contentId => 
+          storage.createDownloadToken({
+            purchaseId: purchase.id,
+            contentId,
+            token: randomUUID(),
+            expiresAt,
+            used: false,
+          })
+        );
+
+        await Promise.all(tokenPromises);
+        
+        res.json({ success: true, message: "Purchase completed" });
+      } else {
+        res.json({ success: false, message: "Purchase already completed" });
+      }
+    } catch (error) {
+      console.error("Purchase completion error:", error);
+      res.status(500).json({ error: "Failed to complete purchase" });
+    }
+  });
+
   // Get purchase details
   app.get("/api/purchase/:id", async (req, res) => {
     try {

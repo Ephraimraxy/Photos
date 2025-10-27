@@ -1,17 +1,40 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { type Purchase } from "@shared/schema";
-import { Copy, ExternalLink, Receipt, Loader2 } from "lucide-react";
+import { Copy, ExternalLink, Receipt, Loader2, CheckCircle } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function HistorySection() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: purchases, isLoading } = useQuery<Purchase[]>({
     queryKey: ["/api/purchases"],
     refetchInterval: 5000, // Refresh every 5 seconds for live updates
+  });
+
+  const completePurchaseMutation = useMutation({
+    mutationFn: async (purchaseId: string) => {
+      const response = await apiRequest("POST", `/api/purchase/${purchaseId}/complete`);
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Purchase marked as completed",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/purchases"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const copyTrackingLink = (purchaseId: string) => {
@@ -178,6 +201,31 @@ export default function HistorySection() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Manual completion button for pending purchases */}
+                    {purchase.status === 'pending' && (
+                      <div className="pt-2 border-t">
+                        <Button
+                          onClick={() => completePurchaseMutation.mutate(purchase.id)}
+                          size="sm"
+                          variant="default"
+                          className="w-full"
+                          disabled={completePurchaseMutation.isPending}
+                        >
+                          {completePurchaseMutation.isPending ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Completing...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Manually Complete Purchase
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
