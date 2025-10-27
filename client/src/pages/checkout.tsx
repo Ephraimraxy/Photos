@@ -88,6 +88,8 @@ export default function Checkout() {
       return await apiRequest("POST", "/api/payment/initialize", data);
     },
     onError: (error: any) => {
+      console.error("Payment initialization error:", error);
+      
       // Handle duplicate tracking code error
       if (error.code === "DUPLICATE_TRACKING_CODE" || error.message?.includes("tracking code")) {
         // Generate new tracking code
@@ -97,6 +99,13 @@ export default function Checkout() {
         toast({
           title: "Session Refreshed",
           description: "Please try your payment again.",
+        });
+      } else {
+        // Handle other errors
+        toast({
+          title: "Payment Error",
+          description: error.message || "Failed to initialize payment. Please check your configuration.",
+          variant: "destructive",
         });
       }
     },
@@ -155,30 +164,48 @@ export default function Checkout() {
     }
 
     try {
-      const response = await initPaymentMutation.mutateAsync({
+      const paymentData: any = {
         contentIds: cartItems.map((item) => item.id),
         trackingCode,
         userName: userName.trim(),
-        couponCode: activeCoupon?.code,
-      });
+      };
 
-      const handler = window.PaystackPop.setup({
-        key: response.publicKey,
-        email: response.email,
-        amount: response.amount,
-        ref: response.reference,
-        onClose: () => {
-          toast({
-            title: "Payment Cancelled",
-            description: "You closed the payment window",
-          });
-        },
-        callback: (paymentResponse) => {
-          verifyPaymentMutation.mutate(paymentResponse.reference);
-        },
-      });
+      // Only include coupon code if there's an active coupon
+      if (activeCoupon?.code) {
+        paymentData.couponCode = activeCoupon.code;
+      }
 
-      handler.openIframe();
+      const response = await initPaymentMutation.mutateAsync(paymentData);
+
+      console.log("Payment response:", response);
+      console.log("Authorization URL:", response.authorizationUrl);
+      console.log("Response keys:", Object.keys(response));
+
+      // Check if response contains an error
+      if (response.error) {
+        console.error("Payment initialization error:", response.error);
+        toast({
+          title: "Payment Configuration Error",
+          description: response.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Always use authorization URL if available
+      if (response.authorizationUrl) {
+        console.log("Redirecting to authorization URL:", response.authorizationUrl);
+        window.location.href = response.authorizationUrl;
+        return; // Exit early to prevent inline fallback
+      } else {
+        console.error("No authorization URL received from server");
+        toast({
+          title: "Payment Error",
+          description: "Unable to initialize payment. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
     } catch (error) {
       toast({
         title: "Payment Initialization Failed",
@@ -188,7 +215,26 @@ export default function Checkout() {
     }
   };
 
-  const total = cartItems.reduce((sum, item) => sum + item.price, 0);
+  // Calculate total with coupon discount
+  const calculateTotal = () => {
+    const baseTotal = cartItems.reduce((sum, item) => sum + item.price, 0);
+    
+    if (activeCoupon) {
+      const currentImages = cartItems.filter(item => item.type === "image").length;
+      const currentVideos = cartItems.filter(item => item.type === "video").length;
+      
+      // Calculate excess items beyond coupon limits
+      const excessImages = Math.max(0, currentImages - activeCoupon.imageCount);
+      const excessVideos = Math.max(0, currentVideos - activeCoupon.videoCount);
+      
+      // Only charge for excess items
+      return (excessImages + excessVideos) * 200;
+    }
+    
+    return baseTotal;
+  };
+
+  const total = calculateTotal();
 
   const copyTrackingLink = () => {
     if (purchaseData?.trackingLink) {
@@ -314,6 +360,40 @@ export default function Checkout() {
                 </div>
 
                 <Separator />
+
+                {/* Coupon Status */}
+                {activeCoupon && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Gift className="w-4 h-4 text-green-600" />
+                      <span className="font-medium text-green-800">Coupon Applied</span>
+                    </div>
+                    <p className="text-sm text-green-700 mb-2">
+                      Coupon: {activeCoupon.code} - {activeCoupon.imageCount} images, {activeCoupon.videoCount} videos free
+                    </p>
+                    {(() => {
+                      const currentImages = cartItems.filter(item => item.type === "image").length;
+                      const currentVideos = cartItems.filter(item => item.type === "video").length;
+                      const excessImages = Math.max(0, currentImages - activeCoupon.imageCount);
+                      const excessVideos = Math.max(0, currentVideos - activeCoupon.videoCount);
+                      
+                      if (excessImages > 0 || excessVideos > 0) {
+                        return (
+                          <p className="text-sm text-orange-700">
+                            You have {excessImages} extra images and {excessVideos} extra videos. 
+                            You'll pay ₦{(excessImages + excessVideos) * 200} for these items.
+                          </p>
+                        );
+                      } else {
+                        return (
+                          <p className="text-sm text-green-700">
+                            All items covered by coupon. No payment required!
+                          </p>
+                        );
+                      }
+                    })()}
+                  </div>
+                )}
 
                 {/* Order Summary */}
                 <div className="space-y-3">

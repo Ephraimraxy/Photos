@@ -170,6 +170,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Validate coupon requirements for downloads
+  app.post("/api/coupons/validate-requirements", async (req, res) => {
+    try {
+      const { couponCode, contentIds } = req.body;
+
+      if (!couponCode || !contentIds || !Array.isArray(contentIds)) {
+        return res.status(400).json({ error: "Coupon code and content IDs are required" });
+      }
+
+      const coupon = await storage.getCouponByCode(couponCode);
+      if (!coupon) {
+        return res.status(404).json({ error: "Invalid coupon code" });
+      }
+
+      // Get content types
+      const contentItems = await Promise.all(
+        contentIds.map(id => storage.getContentById(id))
+      );
+      
+      const images = contentItems.filter(item => item?.type === "image").length;
+      const videos = contentItems.filter(item => item?.type === "video").length;
+
+      // Check if requirements are met
+      const meetsRequirements = images >= coupon.imageCount && videos >= coupon.videoCount;
+      
+      res.json({
+        valid: meetsRequirements,
+        requiredImages: coupon.imageCount,
+        requiredVideos: coupon.videoCount,
+        currentImages: images,
+        currentVideos: videos,
+        message: meetsRequirements 
+          ? "Coupon requirements met" 
+          : `You need at least ${coupon.imageCount} images and ${coupon.videoCount} videos to use this coupon`
+      });
+    } catch (error) {
+      console.error("Coupon validation error:", error);
+      res.status(500).json({ error: "Failed to validate coupon requirements" });
+    }
+  });
+
   // Import from Google Drive (metadata only, no file downloads)
   app.post("/api/content/google-drive", async (req, res) => {
     try {
@@ -386,8 +427,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle coupon if provided
       let couponDiscount = 0;
-      if (couponCode) {
-        const coupon = await storage.getCouponByCode(couponCode);
+      
+      if (couponCode && couponCode.trim()) {
+        const coupon = await storage.getCouponByCode(couponCode.trim());
         if (!coupon) {
           return res.status(400).json({ error: "Invalid coupon code" });
         }
@@ -395,15 +437,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Coupon has already been used" });
         }
         
-        // Calculate discount based on coupon limits
-        const images = contentIds.filter(id => {
-          // You'll need to check content type from database
-          // For now, assume all items are eligible
-          return true;
-        });
+        // Get content types from database to calculate proper discount
+        const contentItems = await Promise.all(
+          contentIds.map(id => storage.getContentById(id))
+        );
         
-        const freeImages = Math.min(images.length, coupon.imageCount);
-        const freeVideos = Math.min(contentIds.length - images.length, coupon.videoCount);
+        const images = contentItems.filter(item => item?.type === "image").length;
+        const videos = contentItems.filter(item => item?.type === "video").length;
+        
+        // Calculate free items based on coupon limits
+        const freeImages = Math.min(images, coupon.imageCount);
+        const freeVideos = Math.min(videos, coupon.videoCount);
+        
+        // Only discount the free items, charge for excess
         couponDiscount = (freeImages + freeVideos) * 200;
       }
 
@@ -423,7 +469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: "pending",
           userName: userName.trim(),
           uniqueId,
-          couponCode: couponCode || null,
+          couponCode: couponCode && couponCode.trim() ? couponCode.trim() : null,
         });
       } catch (dbError: any) {
         // Handle duplicate tracking code error
@@ -461,7 +507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount,
         trackingCode,
         email: "customer@docueditphotos.com",
-        publicKey: paystackResponse.data.data.access_code ? "" : "pk_test_dummy",
+        publicKey: process.env.PAYSTACK_PUBLIC_KEY,
         authorizationUrl: paystackResponse.data.data.authorization_url,
       });
     } catch (error) {

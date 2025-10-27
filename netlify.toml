@@ -1,21 +1,30 @@
 [build]
-  # Build command for client-side only
-  command = "npm run build:client"
+  # Build command for Netlify
+  command = "npm run build"
   
-  # Directory where the built files are located
-  publish = "dist/public"
-  
-  # Base directory (where package.json is located)
-  base = "."
+  # Directory to publish
+  publish = "dist"
 
 [build.environment]
   # Node.js version
   NODE_VERSION = "18"
   
-  # Build environment
+  # Environment variables (these will be set in Netlify dashboard)
   NODE_ENV = "production"
+  PORT = "5000"
 
-# Redirect rules for SPA (Single Page Application)
+# Functions configuration for serverless functions
+[functions]
+  # Directory for Netlify Functions
+  directory = "netlify/functions"
+
+# Redirects for SPA routing
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Handle client-side routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -36,8 +45,11 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# API proxy (if you want to proxy API calls to your backend)
-# [[redirects]]
-#   from = "/api/*"
-#   to = "https://your-backend-url.com/api/:splat"
-#   status = 200
+# Cache API responses
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"

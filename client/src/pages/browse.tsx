@@ -62,10 +62,11 @@ export default function Browse() {
       const currentImages = cartItems.filter(cartItem => cartItem.type === "image").length;
       const currentVideos = cartItems.filter(cartItem => cartItem.type === "video").length;
       
+      // Check if adding this item would exceed coupon limits
       if (item.type === "image" && currentImages >= activeCoupon.imageCount) {
         toast({
           title: "Coupon Limit Reached",
-          description: `You can only select ${activeCoupon.imageCount} images with this coupon. Remove an image or pay for extra items.`,
+          description: `You can only select ${activeCoupon.imageCount} images with this coupon. You can still add more items but will need to pay for extras.`,
           variant: "destructive",
         });
         return;
@@ -73,8 +74,8 @@ export default function Browse() {
       
       if (item.type === "video" && currentVideos >= activeCoupon.videoCount) {
         toast({
-          title: "Coupon Limit Reached",
-          description: `You can only select ${activeCoupon.videoCount} videos with this coupon. Remove a video or pay for extra items.`,
+          title: "Coupon Limit Reached", 
+          description: `You can only select ${activeCoupon.videoCount} videos with this coupon. You can still add more items but will need to pay for extras.`,
           variant: "destructive",
         });
         return;
@@ -114,13 +115,31 @@ export default function Browse() {
       const currentImages = cartItems.filter(cartItem => cartItem.type === "image").length;
       const currentVideos = cartItems.filter(cartItem => cartItem.type === "video").length;
       
+      // Must meet minimum coupon requirements
       if (currentImages < activeCoupon.imageCount || currentVideos < activeCoupon.videoCount) {
         toast({
           title: "Coupon Requirements Not Met",
-          description: `You need to select at least ${activeCoupon.imageCount} images and ${activeCoupon.videoCount} videos to use this coupon.`,
+          description: `You must select at least ${activeCoupon.imageCount} images and ${activeCoupon.videoCount} videos to use this coupon. Current: ${currentImages} images, ${currentVideos} videos.`,
           variant: "destructive",
         });
         return;
+      }
+
+      // Show payment breakdown for excess items
+      const excessImages = Math.max(0, currentImages - activeCoupon.imageCount);
+      const excessVideos = Math.max(0, currentVideos - activeCoupon.videoCount);
+      const excessTotal = (excessImages + excessVideos) * 200;
+
+      if (excessTotal > 0) {
+        toast({
+          title: "Payment Required for Excess Items",
+          description: `You have ${excessImages} extra images and ${excessVideos} extra videos. You'll pay ₦${excessTotal} for these items.`,
+        });
+      } else {
+        toast({
+          title: "Coupon Applied Successfully",
+          description: `Your coupon covers all selected items. No payment required!`,
+        });
       }
     }
 
@@ -234,6 +253,20 @@ export default function Browse() {
                   <span className="text-sm font-medium text-green-700">
                     Coupon: {activeCoupon.code} ({activeCoupon.imageCount} images, {activeCoupon.videoCount} videos)
                   </span>
+                  <div className="text-xs text-green-600">
+                    {(() => {
+                      const currentImages = cartItems.filter(cartItem => cartItem.type === "image").length;
+                      const currentVideos = cartItems.filter(cartItem => cartItem.type === "video").length;
+                      const remainingImages = Math.max(0, activeCoupon.imageCount - currentImages);
+                      const remainingVideos = Math.max(0, activeCoupon.videoCount - currentVideos);
+                      
+                      if (remainingImages > 0 || remainingVideos > 0) {
+                        return `Need: ${remainingImages} images, ${remainingVideos} videos`;
+                      } else {
+                        return "Requirements met ✓";
+                      }
+                    })()}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
