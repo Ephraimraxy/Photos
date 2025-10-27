@@ -1,9 +1,12 @@
 [build]
   # Build command for Netlify
-  command = "npm run build"
+  command = "npm run build:client"
+  
+  # Base directory for the build
+  base = "client"
   
   # Directory to publish
-  publish = "dist"
+  publish = "client/dist"
 
 [build.environment]
   # Node.js version
@@ -18,7 +21,7 @@
 # Functions configuration for serverless functions
 [functions]
   # Directory for Netlify Functions
-  directory = "netlify/functions"
+  directory = "server"
 
 # Redirects for SPA routing
 [[redirects]]
