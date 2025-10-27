@@ -489,6 +489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount,
           email: "customer@docueditphotos.com",
           reference,
+          callback_url: `${req.protocol}://${req.get('host')}/checkout`,
           metadata: {
             contentIds,
             trackingCode,
