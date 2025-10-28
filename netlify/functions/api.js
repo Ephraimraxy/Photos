@@ -592,5 +592,29 @@ app.get('/admin/coupons', async (req, res) => {
   }
 });
 
-// Export the Express app as a Netlify Function
-exports.handler = app;
+// Additional endpoints required by frontend
+app.get('/purchases', async (req, res) => {
+  try {
+    const purchases = await storage.getAllPurchases();
+    res.json(purchases);
+  } catch (error) {
+    console.error('Get purchases error:', error);
+    res.status(500).json({ error: 'Failed to fetch purchases' });
+  }
+});
+
+// Google Drive folder import (stub; implement as needed)
+app.post('/content/google-drive-folder', async (req, res) => {
+  try {
+    // TODO: Implement Google Drive folder import
+    // For now, return 501 to indicate not implemented
+    res.status(501).json({ error: 'Google Drive folder import not implemented yet' });
+  } catch (error) {
+    console.error('Google Drive folder import error:', error);
+    res.status(500).json({ error: 'Failed to import from Google Drive folder' });
+  }
+});
+
+// Export the Express app as a Netlify Function using serverless-http
+const serverless = require('serverless-http');
+module.exports.handler = serverless(app);
