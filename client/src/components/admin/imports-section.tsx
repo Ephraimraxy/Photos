@@ -13,7 +13,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { openGooglePicker, buildDriveFileUrl, buildDriveFolderUrl } from "@/lib/googlePicker";
+// Google Picker helpers are optional; direct URL input also supported
+// import { openGooglePicker, buildDriveFileUrl, buildDriveFolderUrl } from "@/lib/googlePicker";
 import {
   Select,
   SelectContent,
@@ -75,16 +76,18 @@ export default function ImportsSection() {
       // Check if it's a folder URL or individual file URL
       if (data.driveUrl.includes('/folders/')) {
         // Folder import
-        return await apiRequest("POST", "/api/content/google-drive-folder", {
+        const res = await apiRequest("POST", "/api/content/google-drive-folder", {
           folderUrl: data.driveUrl,
           mediaType: data.type === "all" ? "all" : data.type
         });
+        return await res.json();
       } else {
         // Individual file import
-        return await apiRequest("POST", "/api/content/google-drive", data);
+        const res = await apiRequest("POST", "/api/content/google-drive", data);
+        return await res.json();
       }
     },
-    onSuccess: (response) => {
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/content"] });
       if (response.imported) {
         // Folder import response
@@ -132,65 +135,37 @@ export default function ImportsSection() {
     fileInputRef.current?.click();
   };
 
-  const handleFilesSelected: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+  const handleFilesSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    toast({
-      title: "Local file import not yet available",
-      description: "Please use 'Import from Google Drive' for now.",
-    });
-    // Clear selection to allow re-selecting the same files later
-    e.target.value = "";
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', file.name);
+        const res = await fetch('/api/content/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }
+      toast({ title: 'Success', description: 'File(s) imported to Google Drive' });
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+    } catch (err: any) {
+      toast({ title: 'Upload failed', description: err?.message || 'Could not upload files', variant: 'destructive' });
+    } finally {
+      // Clear selection to allow re-selecting the same files later
+      e.target.value = "";
+    }
   };
 
   const handleImportFromDriveClick = () => {
-    openGooglePicker()
-      .then((docs) => {
-        if (!docs || docs.length === 0) return;
-        setPendingDocs(docs);
-        if (settings.confirmBeforeImport) {
-          setSummaryOpen(true);
-        } else {
-          confirmImport(docs);
-        }
-      })
-      .catch((e) => {
-        toast({
-          title: "Google Picker error",
-          description: e?.message || "Unable to open Google Picker",
-          variant: "destructive",
-        });
-      });
+    // If a Google Picker is integrated, it can be called here.
+    // For now, focus on URL-based import via the form below.
+    driveCardRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const confirmImport = async (docs: Array<{ id: string; name?: string; mimeType?: string; isFolder?: boolean }>) => {
-    for (const doc of docs) {
-      try {
-        if (doc.isFolder) {
-          const folderUrl = buildDriveFolderUrl(doc.id);
-          await driveMutation.mutateAsync({
-            driveUrl: folderUrl,
-            title: doc.name || "Imported Folder",
-            type: settings.defaultFolderType,
-          });
-        } else {
-          const fileUrl = buildDriveFileUrl(doc.id);
-          const inferredType: "image" | "video" = (doc.mimeType || "").startsWith("video/") ? "video" : "image";
-          await driveMutation.mutateAsync({
-            driveUrl: fileUrl,
-            title: doc.name || "Imported File",
-            type: inferredType,
-          });
-        }
-      } catch (e: any) {
-        toast({
-          title: "Import failed",
-          description: e?.message || "Could not import selected item",
-          variant: "destructive",
-        });
-      }
-    }
-  };
+  // If Google Picker is enabled later, docs confirmation can be re-enabled
 
   return (
     <div className="space-y-6">
