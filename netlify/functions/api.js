@@ -33,6 +33,10 @@ app.use((req, _res, next) => {
   if (req.url.startsWith(base)) {
     req.url = req.url.slice(base.length) || '/';
   }
+  // Also handle cases where redirect preserved '/api' prefix
+  if (req.url.startsWith('/api/')) {
+    req.url = req.url.slice(4) || '/';
+  }
   next();
 });
 
@@ -769,6 +773,21 @@ app.post('/content/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+// Route aliases to avoid 404s if prefix stripping fails
+app.get('/api/content', (req, res, next) => { req.url = '/content'; next(); }, app._router);
+app.get('/api/content/:id', (req, res, next) => { req.url = `/content/${req.params.id}`; next(); }, app._router);
+app.get('/api/content/:id/preview', (req, res, next) => { req.url = `/content/${req.params.id}/preview`; next(); }, app._router);
+app.get('/api/content/:id/download', (req, res, next) => { req.url = `/content/${req.params.id}/download`; next(); }, app._router);
+app.post('/api/content/upload', (req, res, next) => { req.url = '/content/upload'; next(); }, upload.single('file'), (req, res, next) => next());
+app.post('/api/content/google-drive', (req, res, next) => { req.url = '/content/google-drive'; next(); }, (req, res, next) => next());
+app.post('/api/content/google-drive-folder', (req, res, next) => { req.url = '/content/google-drive-folder'; next(); }, (req, res, next) => next());
+
 // Export the Express app as a Netlify Function using serverless-http
 const serverless = require('serverless-http');
+// 404 diagnostics at the very end (after routes)
+app.use((req, res) => {
+  console.warn('[404]', { method: req.method, url: req.url, originalUrl: req.originalUrl });
+  res.status(404).json({ error: 'Not Found', url: req.url });
+});
+
 module.exports.handler = serverless(app);
