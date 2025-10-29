@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,14 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { LinkIcon, Loader2, Upload } from "lucide-react";
+import { LinkIcon, Loader2, Upload, Settings as SettingsIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { openGooglePicker, buildDriveFileUrl, buildDriveFolderUrl } from "@/lib/googlePicker";
 import {
   Select,
   SelectContent,
@@ -14,6 +21,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 
 export default function ImportsSection() {
   const { toast } = useToast();
@@ -21,6 +38,37 @@ export default function ImportsSection() {
   const [driveUrl, setDriveUrl] = useState("");
   const [driveTitle, setDriveTitle] = useState("");
   const [driveType, setDriveType] = useState<"image" | "video" | "all">("all");
+  const driveCardRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  type ImportSettings = {
+    defaultFolderType: "all" | "image" | "video";
+    confirmBeforeImport: boolean;
+  };
+
+  const loadSettings = (): ImportSettings => {
+    try {
+      const raw = localStorage.getItem("importSettings");
+      if (!raw) return { defaultFolderType: "all", confirmBeforeImport: true };
+      const parsed = JSON.parse(raw);
+      return {
+        defaultFolderType: ["all", "image", "video"].includes(parsed.defaultFolderType) ? parsed.defaultFolderType : "all",
+        confirmBeforeImport: typeof parsed.confirmBeforeImport === "boolean" ? parsed.confirmBeforeImport : true,
+      } as ImportSettings;
+    } catch {
+      return { defaultFolderType: "all", confirmBeforeImport: true };
+    }
+  };
+
+  const [settings, setSettings] = useState<ImportSettings>(loadSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [pendingDocs, setPendingDocs] = useState<Array<{ id: string; name?: string; mimeType?: string; isFolder?: boolean }>>([]);
+
+  const saveSettings = (next: ImportSettings) => {
+    setSettings(next);
+    localStorage.setItem("importSettings", JSON.stringify(next));
+  };
 
   const driveMutation = useMutation({
     mutationFn: async (data: { driveUrl: string; title: string; type: string }) => {
@@ -80,16 +128,201 @@ export default function ImportsSection() {
     });
   };
 
+  const handleImportFromFileClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFilesSelected: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    toast({
+      title: "Local file import not yet available",
+      description: "Please use 'Import from Google Drive' for now.",
+    });
+    // Clear selection to allow re-selecting the same files later
+    e.target.value = "";
+  };
+
+  const handleImportFromDriveClick = () => {
+    openGooglePicker()
+      .then((docs) => {
+        if (!docs || docs.length === 0) return;
+        setPendingDocs(docs);
+        if (settings.confirmBeforeImport) {
+          setSummaryOpen(true);
+        } else {
+          confirmImport(docs);
+        }
+      })
+      .catch((e) => {
+        toast({
+          title: "Google Picker error",
+          description: e?.message || "Unable to open Google Picker",
+          variant: "destructive",
+        });
+      });
+  };
+
+  const confirmImport = async (docs: Array<{ id: string; name?: string; mimeType?: string; isFolder?: boolean }>) => {
+    for (const doc of docs) {
+      try {
+        if (doc.isFolder) {
+          const folderUrl = buildDriveFolderUrl(doc.id);
+          await driveMutation.mutateAsync({
+            driveUrl: folderUrl,
+            title: doc.name || "Imported Folder",
+            type: settings.defaultFolderType,
+          });
+        } else {
+          const fileUrl = buildDriveFileUrl(doc.id);
+          const inferredType: "image" | "video" = (doc.mimeType || "").startsWith("video/") ? "video" : "image";
+          await driveMutation.mutateAsync({
+            driveUrl: fileUrl,
+            title: doc.name || "Imported File",
+            type: inferredType,
+          });
+        }
+      } catch (e: any) {
+        toast({
+          title: "Import failed",
+          description: e?.message || "Could not import selected item",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">Import Content</h2>
-        <p className="text-muted-foreground">
-          Import images and videos from Google Drive
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-3xl font-bold">Import Content</h2>
+          <p className="text-muted-foreground">
+            Import images and videos from Google Drive
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="button-import-settings">
+                <SettingsIcon className="w-4 h-4 mr-2" />
+                Settings
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Import Settings</DialogTitle>
+                <DialogDescription>Control default filters and confirmations for Drive imports.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="default-folder-type">Default folder import type</Label>
+                  <Select
+                    value={settings.defaultFolderType}
+                    onValueChange={(v) => saveSettings({ ...settings, defaultFolderType: v as any })}
+                  >
+                    <SelectTrigger id="default-folder-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All (Images & Videos)</SelectItem>
+                      <SelectItem value="image">Images Only</SelectItem>
+                      <SelectItem value="video">Videos Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between py-2">
+                  <div className="space-y-0.5">
+                    <p className="font-medium">Confirm before importing</p>
+                    <p className="text-sm text-muted-foreground">Show a summary dialog after picking items.</p>
+                  </div>
+                  <Switch
+                    checked={settings.confirmBeforeImport}
+                    onCheckedChange={(checked) => saveSettings({ ...settings, confirmBeforeImport: !!checked })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setSettingsOpen(false)}>Close</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button data-testid="button-import-top-right">
+                <Upload className="w-4 h-4 mr-2" />
+                Import
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleImportFromFileClick} data-testid="menu-import-file">
+                Import from file
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleImportFromDriveClick} data-testid="menu-import-drive">
+                Import from Google Drive
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={handleFilesSelected}
+          />
+        </div>
       </div>
 
-      <Card>
+      <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Import</DialogTitle>
+            <DialogDescription>
+              Review the items selected from Google Drive before importing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[50vh] overflow-auto">
+            {pendingDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No items selected.</p>
+            ) : (
+              pendingDocs.map((d) => {
+                const isVideo = (d.mimeType || "").startsWith("video/");
+                const isFolder = !!d.isFolder;
+                return (
+                  <div key={d.id} className="flex items-center justify-between border rounded p-2">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{d.name || d.id}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {isFolder ? "Folder" : isVideo ? "Video" : "Image"}
+                      </p>
+                    </div>
+                    {isFolder && (
+                      <span className="text-xs text-muted-foreground">Type: {settings.defaultFolderType}</span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSummaryOpen(false)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                setSummaryOpen(false);
+                await confirmImport(pendingDocs);
+                setPendingDocs([]);
+              }}
+            >
+              Import {pendingDocs.length > 0 ? `(${pendingDocs.length})` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Card ref={driveCardRef}>
         <CardHeader>
           <CardTitle>Import from Google Drive</CardTitle>
           <CardDescription>

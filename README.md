@@ -109,6 +109,10 @@ GOOGLE_DRIVE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_DRIVE_ACCESS_TOKEN=your_access_token
 GOOGLE_DRIVE_REFRESH_TOKEN=your_refresh_token
 
+# Frontend (Vite) Google Picker
+VITE_GOOGLE_CLIENT_ID=your_oauth_web_client_id
+VITE_GOOGLE_API_KEY=your_google_api_key
+
 # Application Settings
 NODE_ENV=production
 PORT=5000
@@ -205,6 +209,7 @@ With automatic caching enabled:
 - **Tailwind CSS** - Utility-first CSS
 - **Radix UI** - Accessible components
 - **React Query** - Data fetching and caching
+- **Google Picker** - In-app Google Drive file/folder selection
 
 ### Backend
 - **Express.js** - Web framework
