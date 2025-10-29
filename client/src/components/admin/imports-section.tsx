@@ -13,8 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-// Google Picker helpers are optional; direct URL input also supported
-// import { openGooglePicker, buildDriveFileUrl, buildDriveFolderUrl } from "@/lib/googlePicker";
+import { openGooglePicker, buildDriveFileUrl, buildDriveFolderUrl, getGoogleDriveAccessToken } from "@/lib/googlePicker";
 import {
   Select,
   SelectContent,
@@ -72,22 +71,51 @@ export default function ImportsSection() {
   };
 
   const driveMutation = useMutation({
-    mutationFn: async (data: { driveUrl: string; title: string; type: string }) => {
-      // Check if it's a folder URL or individual file URL
-      if (data.driveUrl.includes('/folders/')) {
-        // Folder import
+    mutationFn: async (data: { driveUrl?: string; title?: string; type?: string; folderId?: string; fileId?: string }) => {
+      const token = await getGoogleDriveAccessToken();
+
+      // prefer explicit IDs if provided
+      if (data.folderId) {
         const res = await apiRequest("POST", "/api/content/google-drive-folder", {
-          folderUrl: data.driveUrl,
-          mediaType: data.type === "all" ? "all" : data.type
+          folderId: data.folderId,
+          mediaType: (data.type || "all") === "all" ? "all" : data.type,
+          token,
+        });
+        return await res.json();
+      }
+      if (data.fileId) {
+        const res = await apiRequest("POST", "/api/content/google-drive", {
+          fileId: data.fileId,
+          title: data.title || "Imported File",
+          type: data.type || "image",
+          token,
+        });
+        return await res.json();
+      }
+
+      // else parse from URL
+      const driveUrl = data.driveUrl || "";
+      const isFolder = driveUrl.includes('/folders/');
+      if (isFolder) {
+        const folderId = driveUrl.split('/folders/')[1]?.split(/[?#]/)[0];
+        const res = await apiRequest("POST", "/api/content/google-drive-folder", {
+          folderId,
+          mediaType: (data.type || "all") === "all" ? "all" : data.type,
+          token,
         });
         return await res.json();
       } else {
-        // Individual file import
-        const res = await apiRequest("POST", "/api/content/google-drive", data);
+        const fileId = driveUrl.split('/file/d/')[1]?.split('/')[0];
+        const res = await apiRequest("POST", "/api/content/google-drive", {
+          fileId,
+          title: data.title || "Imported File",
+          type: data.type || "image",
+          token,
+        });
         return await res.json();
       }
     },
-    onSuccess: (response: any) => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["/api/content"] });
       if (response.imported) {
         // Folder import response
@@ -140,32 +168,74 @@ export default function ImportsSection() {
     if (!files || files.length === 0) return;
     try {
       for (const file of Array.from(files)) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('title', file.name);
-        const res = await fetch('/api/content/upload', {
-          method: 'POST',
-          body: formData,
+        const form = new FormData();
+        form.append("file", file);
+        form.append("title", file.name);
+        const res = await fetch("/api/content/upload", {
+          method: "POST",
+          body: form,
         });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(msg || `Failed to upload ${file.name}`);
+        }
+        await res.json();
       }
-      toast({ title: 'Success', description: 'File(s) imported to Google Drive' });
+      toast({ title: "Upload complete", description: `${files.length} file(s) imported` });
       queryClient.invalidateQueries({ queryKey: ["/api/content"] });
     } catch (err: any) {
-      toast({ title: 'Upload failed', description: err?.message || 'Could not upload files', variant: 'destructive' });
+      toast({ title: "Upload failed", description: err?.message || "", variant: "destructive" });
     } finally {
-      // Clear selection to allow re-selecting the same files later
       e.target.value = "";
     }
   };
 
   const handleImportFromDriveClick = () => {
-    // If a Google Picker is integrated, it can be called here.
-    // For now, focus on URL-based import via the form below.
-    driveCardRef.current?.scrollIntoView({ behavior: 'smooth' });
+    openGooglePicker()
+      .then((docs) => {
+        if (!docs || docs.length === 0) return;
+        setPendingDocs(docs);
+        if (settings.confirmBeforeImport) {
+          setSummaryOpen(true);
+        } else {
+          confirmImport(docs);
+        }
+      })
+      .catch((e) => {
+        toast({
+          title: "Google Picker error",
+          description: e?.message || "Unable to open Google Picker",
+          variant: "destructive",
+        });
+      });
   };
 
-  // If Google Picker is enabled later, docs confirmation can be re-enabled
+  const confirmImport = async (docs: Array<{ id: string; name?: string; mimeType?: string; isFolder?: boolean }>) => {
+    for (const doc of docs) {
+      try {
+        if (doc.isFolder) {
+          await driveMutation.mutateAsync({
+            folderId: doc.id,
+            title: doc.name || "Imported Folder",
+            type: settings.defaultFolderType,
+          });
+        } else {
+          const inferredType: "image" | "video" = (doc.mimeType || "").startsWith("video/") ? "video" : "image";
+          await driveMutation.mutateAsync({
+            fileId: doc.id,
+            title: doc.name || "Imported File",
+            type: inferredType,
+          });
+        }
+      } catch (e: any) {
+        toast({
+          title: "Import failed",
+          description: e?.message || "Could not import selected item",
+          variant: "destructive",
+        });
+      }
+    }
+  };
 
   return (
     <div className="space-y-6">

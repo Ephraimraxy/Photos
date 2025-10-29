@@ -123,6 +123,10 @@ export async function openGooglePicker(): Promise<PickerDoc[] | null> {
   });
 }
 
+export async function getGoogleDriveAccessToken(): Promise<string> {
+  return await ensureAccessToken();
+}
+
 export function buildDriveFileUrl(fileId: string): string {
   return `https://drive.google.com/file/d/${fileId}/view`;
 }

@@ -172,22 +172,16 @@ const upload = multer({
 let oauth2Client = null;
 let drive = null;
 
-const initGoogleDrive = () => {
-  if (oauth2Client) return { oauth2Client, drive };
-  
-  oauth2Client = new google.auth.OAuth2(
+const initGoogleDriveWithToken = (accessToken) => {
+  // Create new client per request to use the end-user token
+  const client = new google.auth.OAuth2(
     process.env.GOOGLE_DRIVE_CLIENT_ID,
     process.env.GOOGLE_DRIVE_CLIENT_SECRET,
-    'urn:ietf:wg:oauth:2.0:oob'
+    'postmessage'
   );
-
-  oauth2Client.setCredentials({
-    access_token: process.env.GOOGLE_DRIVE_ACCESS_TOKEN,
-    refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN,
-  });
-
-  drive = google.drive({ version: 'v3', auth: oauth2Client });
-  return { oauth2Client, drive };
+  client.setCredentials({ access_token: accessToken });
+  const drv = google.drive({ version: 'v3', auth: client });
+  return { oauth2Client: client, drive: drv };
 };
 
 // Routes
@@ -613,21 +607,25 @@ app.get('/purchases', async (req, res) => {
 // Google Drive folder import (stub; implement as needed)
 app.post('/content/google-drive-folder', async (req, res) => {
   try {
-    const { folderId } = req.body || {};
-    const uploadFolderId = folderId || process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
-    if (!uploadFolderId) {
-      return res.status(400).json({ error: 'Google Drive folderId is required' });
+    const { folderId, token, mediaType } = req.body || {};
+    if (!folderId || !token) {
+      return res.status(400).json({ error: 'folderId and token are required' });
     }
 
-    const { drive } = initGoogleDrive();
+    const { drive } = initGoogleDriveWithToken(token);
 
     // List files in the folder
     const listResp = await drive.files.list({
-      q: `'${uploadFolderId}' in parents and trashed = false`,
+      q: `'${folderId}' in parents and trashed = false`,
       fields: 'files(id, name, mimeType)'
     });
 
-    const files = listResp.data.files || [];
+    let files = listResp.data.files || [];
+    if (mediaType === 'image') {
+      files = files.filter(f => (f.mimeType || '').startsWith('image/'));
+    } else if (mediaType === 'video') {
+      files = files.filter(f => (f.mimeType || '').startsWith('video/'));
+    }
 
     const created = [];
     for (const f of files) {
@@ -661,6 +659,44 @@ app.post('/content/google-drive-folder', async (req, res) => {
   } catch (error) {
     console.error('Google Drive folder import error:', error);
     res.status(500).json({ error: 'Failed to import from Google Drive folder' });
+  }
+});
+
+// Import a single Google Drive file by ID using user's token
+app.post('/content/google-drive', async (req, res) => {
+  try {
+    const { fileId, title, type, token } = req.body || {};
+    if (!fileId || !token) {
+      return res.status(400).json({ error: 'fileId and token are required' });
+    }
+
+    const { drive } = initGoogleDriveWithToken(token);
+
+    // Make file public
+    try {
+      await drive.permissions.create({
+        fileId,
+        requestBody: { role: 'reader', type: 'anyone' }
+      });
+    } catch (_) {}
+
+    const resolvedType = type || 'image';
+    const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    const thumbnailUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+
+    const created = await storage.createContent({
+      id: randomUUID(),
+      title: title || fileId,
+      type: resolvedType,
+      thumbnailUrl,
+      downloadUrl,
+      googleDriveId: fileId,
+    });
+
+    res.json(created);
+  } catch (error) {
+    console.error('Google Drive single file import error:', error);
+    res.status(500).json({ error: 'Failed to import from Google Drive' });
   }
 });
 
