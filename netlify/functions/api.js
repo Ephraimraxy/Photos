@@ -27,6 +27,16 @@ app.use((req, res, next) => {
   next();
 });
 
+// Normalize Netlify redirect path: remove '/api' prefix so existing routes match
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/')) {
+    req.url = req.url.slice(4);
+  } else if (req.url === '/api') {
+    req.url = '/';
+  }
+  next();
+});
+
 // Parse JSON bodies
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -93,6 +103,11 @@ const initDB = async () => {
 
 // Storage functions
 const storage = {
+  async createContent(data) {
+    const database = await initDB();
+    const [created] = await database.insert(content).values(data).returning();
+    return created;
+  },
   async createPurchase(data) {
     const database = await initDB();
     const [purchase] = await database.insert(purchases).values(data).returning();
@@ -182,21 +197,6 @@ const initGoogleDrive = () => {
   drive = google.drive({ version: 'v3', auth: oauth2Client });
   return { oauth2Client, drive };
 };
-
-// Helpers: extract Google Drive IDs and build URLs
-const extractDriveIdFromUrl = (url) => {
-  if (!url) return null;
-  // File URL patterns: /file/d/{id}/ or id={id}
-  const fileMatch = url.match(/\/file\/d\/([A-Za-z0-9_-]+)/) || url.match(/[?&]id=([A-Za-z0-9_-]+)/);
-  if (fileMatch) return fileMatch[1];
-  // Folder URL pattern: /folders/{id}
-  const folderMatch = url.match(/\/folders\/([A-Za-z0-9_-]+)/);
-  if (folderMatch) return folderMatch[1];
-  return null;
-};
-
-const buildDriveDownloadUrl = (id) => `https://drive.google.com/uc?export=download&id=${id}`;
-const buildDriveThumbnailUrl = (id) => `https://drive.google.com/thumbnail?id=${id}`;
 
 // Routes
 app.get('/health', (req, res) => {
@@ -291,74 +291,6 @@ app.get('/content/:id/download', async (req, res) => {
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Failed to process download' });
-  }
-});
-
-// Upload content from local file to Google Drive
-app.post('/content/upload', upload.single('file'), async (req, res) => {
-  try {
-    const { drive } = initGoogleDrive();
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    const title = req.body?.title || req.file.originalname;
-
-    const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
-    const fileMetadata = {
-      name: title,
-      ...(folderId ? { parents: [folderId] } : {}),
-    };
-
-    const media = {
-      mimeType: req.file.mimetype,
-      body: Buffer.from(req.file.buffer),
-    };
-
-    // googleapis requires a stream; wrap buffer in a readable stream
-    const { Readable } = require('stream');
-    const bufferStream = new Readable();
-    bufferStream.push(media.body);
-    bufferStream.push(null);
-
-    const createRes = await drive.files.create({
-      requestBody: fileMetadata,
-      media: { mimeType: req.file.mimetype, body: bufferStream },
-      fields: 'id,name,thumbnailLink,webContentLink,mimeType',
-    });
-
-    const fileId = createRes.data.id;
-
-    // Make file public
-    await drive.permissions.create({
-      fileId,
-      requestBody: { role: 'reader', type: 'anyone' },
-    });
-
-    const type = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-    const contentId = randomUUID();
-    const database = await initDB();
-    const now = new Date();
-    await database.insert(content).values({
-      id: contentId,
-      title,
-      type,
-      thumbnailUrl: buildDriveThumbnailUrl(fileId),
-      downloadUrl: buildDriveDownloadUrl(fileId),
-      googleDriveId: fileId,
-      createdAt: now,
-    });
-
-    res.json({
-      id: contentId,
-      title,
-      type,
-      thumbnailUrl: buildDriveThumbnailUrl(fileId),
-      downloadUrl: buildDriveDownloadUrl(fileId),
-      googleDriveId: fileId,
-    });
-  } catch (error) {
-    console.error('Local upload error:', error);
-    res.status(500).json({ error: 'Failed to upload file' });
   }
 });
 
@@ -689,97 +621,116 @@ app.get('/purchases', async (req, res) => {
 // Google Drive folder import (stub; implement as needed)
 app.post('/content/google-drive-folder', async (req, res) => {
   try {
+    const { folderId } = req.body || {};
+    const uploadFolderId = folderId || process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
+    if (!uploadFolderId) {
+      return res.status(400).json({ error: 'Google Drive folderId is required' });
+    }
+
     const { drive } = initGoogleDrive();
-    const { folderUrl, mediaType } = req.body || {};
-    const folderId = extractDriveIdFromUrl(folderUrl);
-    if (!folderId) return res.status(400).json({ error: 'Invalid folder URL' });
 
-    const mimeTypeFilter =
-      mediaType === 'image' ? " and mimeType contains 'image/'" :
-      mediaType === 'video' ? " and mimeType contains 'video/'" : '';
+    // List files in the folder
+    const listResp = await drive.files.list({
+      q: `'${uploadFolderId}' in parents and trashed = false`,
+      fields: 'files(id, name, mimeType)'
+    });
 
-    let pageToken = undefined;
-    let imported = 0;
-    const database = await initDB();
-    do {
-      const listRes = await drive.files.list({
-        q: `'${folderId}' in parents and trashed = false${mimeTypeFilter}`,
-        fields: 'nextPageToken, files(id,name,mimeType,thumbnailLink,webContentLink)',
-        pageToken,
-        pageSize: 100,
-      });
+    const files = listResp.data.files || [];
 
-      for (const f of listRes.data.files || []) {
-        try {
-          // Make public just in case
-          await drive.permissions.create({ fileId: f.id, requestBody: { role: 'reader', type: 'anyone' } });
-
-          const type = (f.mimeType || '').startsWith('video/') ? 'video' : 'image';
-          const contentId = randomUUID();
-          await database.insert(content).values({
-            id: contentId,
-            title: f.name,
-            type,
-            thumbnailUrl: buildDriveThumbnailUrl(f.id),
-            downloadUrl: buildDriveDownloadUrl(f.id),
-            googleDriveId: f.id,
-            createdAt: new Date(),
-          });
-          imported += 1;
-        } catch (innerErr) {
-          console.error('Insert file failed:', f.id, innerErr);
-        }
+    const created = [];
+    for (const f of files) {
+      const fileId = f.id;
+      // Ensure public access
+      try {
+        await drive.permissions.create({
+          fileId,
+          requestBody: { role: 'reader', type: 'anyone' }
+        });
+      } catch (_) {
+        // ignore permission errors if already public
       }
-      pageToken = listRes.data.nextPageToken || undefined;
-    } while (pageToken);
 
-    res.json({ imported });
+      const type = f.mimeType?.startsWith('video/') ? 'video' : 'image';
+      const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      const thumbnailUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+
+      const record = await storage.createContent({
+        id: randomUUID(),
+        title: f.name,
+        type,
+        thumbnailUrl,
+        downloadUrl,
+        googleDriveId: fileId,
+      });
+      created.push(record);
+    }
+
+    res.json({ imported: created.length, items: created });
   } catch (error) {
     console.error('Google Drive folder import error:', error);
     res.status(500).json({ error: 'Failed to import from Google Drive folder' });
   }
 });
 
-// Import single Google Drive file by URL
-app.post('/content/google-drive', async (req, res) => {
+// Upload single file and create content via Google Drive
+app.post('/content/upload', upload.single('file'), async (req, res) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'File is required' });
+    }
+    const title = req.body?.title || req.file.originalname;
     const { drive } = initGoogleDrive();
-    const { driveUrl, title, type } = req.body || {};
-    const fileId = extractDriveIdFromUrl(driveUrl);
-    if (!fileId) return res.status(400).json({ error: 'Invalid Google Drive file URL' });
 
-    const getRes = await drive.files.get({
-      fileId,
-      fields: 'id,name,mimeType,thumbnailLink,webContentLink',
+    const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
+    if (!folderId) {
+      return res.status(500).json({ error: 'GOOGLE_DRIVE_UPLOAD_FOLDER_ID not configured' });
+    }
+
+    // Upload to Google Drive
+    const fileMeta = {
+      name: title,
+      parents: [folderId],
+    };
+    const media = {
+      mimeType: req.file.mimetype,
+      body: Buffer.isBuffer(req.file.buffer)
+        ? require('stream').Readable.from(req.file.buffer)
+        : req.file.stream,
+    };
+
+    const uploadResp = await drive.files.create({
+      requestBody: fileMeta,
+      media,
+      fields: 'id, name'
     });
 
-    // Make file public
-    await drive.permissions.create({ fileId, requestBody: { role: 'reader', type: 'anyone' } });
+    const fileId = uploadResp.data.id;
 
-    const resolvedType = type || ((getRes.data.mimeType || '').startsWith('video/') ? 'video' : 'image');
-    const contentId = randomUUID();
-    const database = await initDB();
-    await database.insert(content).values({
-      id: contentId,
-      title: title || getRes.data.name,
-      type: resolvedType,
-      thumbnailUrl: buildDriveThumbnailUrl(fileId),
-      downloadUrl: buildDriveDownloadUrl(fileId),
+    // Make public
+    try {
+      await drive.permissions.create({
+        fileId,
+        requestBody: { role: 'reader', type: 'anyone' }
+      });
+    } catch (_) {}
+
+    const type = req.file.mimetype?.startsWith('video/') ? 'video' : 'image';
+    const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    const thumbnailUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+
+    const created = await storage.createContent({
+      id: randomUUID(),
+      title,
+      type,
+      thumbnailUrl,
+      downloadUrl,
       googleDriveId: fileId,
-      createdAt: new Date(),
     });
 
-    res.json({
-      id: contentId,
-      title: title || getRes.data.name,
-      type: resolvedType,
-      thumbnailUrl: buildDriveThumbnailUrl(fileId),
-      downloadUrl: buildDriveDownloadUrl(fileId),
-      googleDriveId: fileId,
-    });
+    res.json(created);
   } catch (error) {
-    console.error('Google Drive file import error:', error);
-    res.status(500).json({ error: 'Failed to import Google Drive file' });
+    console.error('File upload error:', error);
+    res.status(500).json({ error: 'Failed to upload file' });
   }
 });
 
