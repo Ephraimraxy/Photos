@@ -27,7 +27,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// With :splat redirect we receive the original path, so no prefix normalization needed
+// Normalize Netlify function base path so Express routes match
+app.use((req, _res, next) => {
+  const base = '/.netlify/functions/api';
+  if (req.url.startsWith(base)) {
+    req.url = req.url.slice(base.length) || '/';
+  }
+  next();
+});
 
 // Parse JSON bodies
 app.use(express.json({ limit: '10mb' }));
