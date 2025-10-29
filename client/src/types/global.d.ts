@@ -12,6 +12,8 @@ declare global {
         openIframe: () => void;
       };
     };
+    google?: any;
+    gapi?: any;
   }
 }
 
