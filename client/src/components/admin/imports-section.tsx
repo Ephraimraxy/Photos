@@ -64,6 +64,15 @@ export default function ImportsSection() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [pendingDocs, setPendingDocs] = useState<Array<{ id: string; name?: string; mimeType?: string; isFolder?: boolean }>>([]);
+  
+  // Progress modal state
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [progressData, setProgressData] = useState<{
+    current: number;
+    total: number;
+    currentFile: string;
+    type: 'file' | 'drive';
+  }>({ current: 0, total: 0, currentFile: '', type: 'file' });
 
   const saveSettings = (next: ImportSettings) => {
     setSettings(next);
@@ -166,8 +175,16 @@ export default function ImportsSection() {
   const handleFilesSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    
+    // Show progress modal
+    setProgressData({ current: 0, total: files.length, currentFile: '', type: 'file' });
+    setProgressOpen(true);
+    
     try {
-      for (const file of Array.from(files)) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setProgressData(prev => ({ ...prev, current: i, currentFile: file.name }));
+        
         const form = new FormData();
         form.append("file", file);
         form.append("title", file.name);
@@ -181,9 +198,15 @@ export default function ImportsSection() {
         }
         await res.json();
       }
-      toast({ title: "Upload complete", description: `${files.length} file(s) imported` });
-      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      
+      setProgressData(prev => ({ ...prev, current: files.length }));
+      setTimeout(() => {
+        setProgressOpen(false);
+        toast({ title: "Upload complete", description: `${files.length} file(s) imported` });
+        queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      }, 500);
     } catch (err: any) {
+      setProgressOpen(false);
       toast({ title: "Upload failed", description: err?.message || "", variant: "destructive" });
     } finally {
       e.target.value = "";
@@ -211,29 +234,47 @@ export default function ImportsSection() {
   };
 
   const confirmImport = async (docs: Array<{ id: string; name?: string; mimeType?: string; isFolder?: boolean }>) => {
-    for (const doc of docs) {
-      try {
-        if (doc.isFolder) {
-          await driveMutation.mutateAsync({
-            folderId: doc.id,
-            title: doc.name || "Imported Folder",
-            type: settings.defaultFolderType,
-          });
-        } else {
-          const inferredType: "image" | "video" = (doc.mimeType || "").startsWith("video/") ? "video" : "image";
-          await driveMutation.mutateAsync({
-            fileId: doc.id,
-            title: doc.name || "Imported File",
-            type: inferredType,
+    // Show progress modal
+    setProgressData({ current: 0, total: docs.length, currentFile: '', type: 'drive' });
+    setProgressOpen(true);
+    
+    try {
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i];
+        setProgressData(prev => ({ ...prev, current: i, currentFile: doc.name || doc.id }));
+        
+        try {
+          if (doc.isFolder) {
+            await driveMutation.mutateAsync({
+              folderId: doc.id,
+              title: doc.name || "Imported Folder",
+              type: settings.defaultFolderType,
+            });
+          } else {
+            const inferredType: "image" | "video" = (doc.mimeType || "").startsWith("video/") ? "video" : "image";
+            await driveMutation.mutateAsync({
+              fileId: doc.id,
+              title: doc.name || "Imported File",
+              type: inferredType,
+            });
+          }
+        } catch (e: any) {
+          toast({
+            title: "Import failed",
+            description: e?.message || "Could not import selected item",
+            variant: "destructive",
           });
         }
-      } catch (e: any) {
-        toast({
-          title: "Import failed",
-          description: e?.message || "Could not import selected item",
-          variant: "destructive",
-        });
       }
+      
+      setProgressData(prev => ({ ...prev, current: docs.length }));
+      setTimeout(() => {
+        setProgressOpen(false);
+        queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      }, 500);
+    } catch (err: any) {
+      setProgressOpen(false);
+      toast({ title: "Import failed", description: err?.message || "", variant: "destructive" });
     }
   };
 
@@ -437,6 +478,58 @@ export default function ImportsSection() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Progress Modal */}
+      <Dialog open={progressOpen} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              {progressData.type === 'file' ? 'Uploading Files' : 'Importing from Drive'}
+            </DialogTitle>
+            <DialogDescription>
+              Please wait while we process your files...
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Progress</span>
+                <span>{progressData.current} / {progressData.total}</span>
+              </div>
+              <div className="w-full bg-secondary rounded-full h-2">
+                <div 
+                  className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
+                  style={{ 
+                    width: `${progressData.total > 0 ? (progressData.current / progressData.total) * 100 : 0}%` 
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Current File */}
+            {progressData.currentFile && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Current file:</p>
+                <p className="text-sm text-muted-foreground truncate" title={progressData.currentFile}>
+                  {progressData.currentFile}
+                </p>
+              </div>
+            )}
+
+            {/* Animated dots */}
+            <div className="flex justify-center">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
