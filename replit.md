@@ -8,6 +8,30 @@ The application enables administrators to import content from Google Drive and m
 
 ## Recent Changes
 
+### October 30, 2025 - Netlify Deployment Fixes
+
+**Secrets Scanner Configuration:**
+- Added `SECRETS_SCAN_OMIT_PATHS` to exclude documentation files and build output from scanning
+- Added `SECRETS_SCAN_OMIT_KEYS` to ignore non-sensitive environment variables (NODE_ENV, PORT)
+- Prevents deployment failures caused by environment values in markdown documentation
+
+**File Upload Serverless Compatibility:**
+- Replaced multer with busboy for Netlify Functions compatibility
+- Implemented custom multipart form parser for base64-encoded Lambda requests
+- Added middleware to properly expose parsed file data to Express via `req.apiGateway.event`
+- File uploads now work correctly in Netlify's serverless environment
+
+**Technical Implementation:**
+- Created `parseMultipartForm()` helper function using busboy
+- Modified Netlify Function handler to intercept and pre-process file uploads
+- Added detailed logging with `[Upload]` prefix for debugging
+- Ensured compatibility with both Replit development and Netlify production environments
+
+**Documentation:**
+- Created comprehensive deployment guide (`NETLIFY_DEPLOYMENT_FIX.md`)
+- Documented all required environment variables
+- Added troubleshooting section for common deployment issues
+
 ### October 15, 2025 - Enhanced User Experience & Admin Features
 
 **Payment Success Flow Enhancement:**
