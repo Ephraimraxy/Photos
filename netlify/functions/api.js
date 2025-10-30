@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { randomUUID } = require('crypto');
-const multer = require('multer');
+const busboy = require('busboy');
 const sharp = require('sharp');
 const { google } = require('googleapis');
 const { drizzle } = require('drizzle-orm/postgres-js');
@@ -11,6 +11,64 @@ const { z } = require('zod');
 
 // Load environment variables
 require('dotenv').config();
+
+// Helper function to parse multipart form data in Netlify Functions
+function parseMultipartForm(event) {
+  return new Promise((resolve, reject) => {
+    const fields = {};
+    const files = [];
+    
+    try {
+      const bb = busboy({ 
+        headers: {
+          ...event.headers,
+          'content-type': event.headers['content-type'] || event.headers['Content-Type']
+        }
+      });
+
+      // Handle file uploads
+      bb.on('file', (fieldname, file, info) => {
+        const { filename, mimeType } = info;
+        const chunks = [];
+        
+        file.on('data', (data) => {
+          chunks.push(data);
+        });
+        
+        file.on('end', () => {
+          files.push({
+            fieldname,
+            filename,
+            mimetype: mimeType,
+            buffer: Buffer.concat(chunks)
+          });
+        });
+      });
+
+      // Handle regular form fields
+      bb.on('field', (fieldname, value) => {
+        fields[fieldname] = value;
+      });
+
+      // When parsing completes
+      bb.on('close', () => {
+        resolve({ fields, files });
+      });
+
+      bb.on('error', (error) => {
+        reject(error);
+      });
+
+      // CRITICAL: Event body must be base64 decoded for Netlify Functions
+      const body = event.isBase64Encoded 
+        ? Buffer.from(event.body, 'base64')
+        : Buffer.from(event.body);
+      bb.end(body);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
 
 const app = express();
 
@@ -43,6 +101,20 @@ app.use((req, _res, next) => {
 // Parse JSON bodies
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Middleware to attach parsed file data from Netlify Function wrapper
+app.use((req, res, next) => {
+  // serverless-http exposes the original event at req.apiGateway.event
+  const event = req.apiGateway?.event;
+  
+  if (event?._parsedFile) {
+    req.file = event._parsedFile;
+  }
+  if (event?._parsedFields) {
+    req.body = { ...req.body, ...event._parsedFields };
+  }
+  next();
+});
 
 // Database schema
 const purchases = {
@@ -173,15 +245,31 @@ const storage = {
   }
 };
 
-// Multer configuration
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-});
+// No multer needed - using busboy for serverless file uploads
 
 // Google Drive setup
 let oauth2Client = null;
 let drive = null;
+
+const initGoogleDrive = () => {
+  // Initialize with server credentials for admin uploads
+  if (!oauth2Client || !drive) {
+    oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_DRIVE_CLIENT_ID,
+      process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+      'postmessage'
+    );
+    
+    // Set credentials from refresh token
+    oauth2Client.setCredentials({
+      refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN,
+      access_token: process.env.GOOGLE_DRIVE_ACCESS_TOKEN,
+    });
+    
+    drive = google.drive({ version: 'v3', auth: oauth2Client });
+  }
+  return { oauth2Client, drive };
+};
 
 const initGoogleDriveWithToken = (accessToken) => {
   // Create new client per request to use the end-user token
@@ -712,12 +800,19 @@ app.post('/content/google-drive', async (req, res) => {
 });
 
 // Upload single file and create content via Google Drive
-app.post('/content/upload', upload.single('file'), async (req, res) => {
+// Note: This won't work with regular Express middleware in Netlify Functions
+// We'll handle this through a special wrapper
+app.post('/content/upload', async (req, res) => {
   try {
+    // In serverless environment, we can't use multer middleware
+    // Files will be parsed before reaching Express
+    console.log('Upload endpoint hit - req.file:', req.file, 'req.body:', req.body);
+    
     if (!req.file) {
       return res.status(400).json({ error: 'File is required' });
     }
-    const title = req.body?.title || req.file.originalname;
+    
+    const title = req.body?.title || req.file.originalname || req.file.filename;
     const { drive } = initGoogleDrive();
 
     const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
@@ -773,21 +868,66 @@ app.post('/content/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// Route aliases to avoid 404s if prefix stripping fails
-app.get('/api/content', (req, res, next) => { req.url = '/content'; next(); }, app._router);
-app.get('/api/content/:id', (req, res, next) => { req.url = `/content/${req.params.id}`; next(); }, app._router);
-app.get('/api/content/:id/preview', (req, res, next) => { req.url = `/content/${req.params.id}/preview`; next(); }, app._router);
-app.get('/api/content/:id/download', (req, res, next) => { req.url = `/content/${req.params.id}/download`; next(); }, app._router);
-app.post('/api/content/upload', (req, res, next) => { req.url = '/content/upload'; next(); }, upload.single('file'), (req, res, next) => next());
-app.post('/api/content/google-drive', (req, res, next) => { req.url = '/content/google-drive'; next(); }, (req, res, next) => next());
-app.post('/api/content/google-drive-folder', (req, res, next) => { req.url = '/content/google-drive-folder'; next(); }, (req, res, next) => next());
-
-// Export the Express app as a Netlify Function using serverless-http
-const serverless = require('serverless-http');
 // 404 diagnostics at the very end (after routes)
 app.use((req, res) => {
   console.warn('[404]', { method: req.method, url: req.url, originalUrl: req.originalUrl });
   res.status(404).json({ error: 'Not Found', url: req.url });
 });
 
-module.exports.handler = serverless(app);
+// Export the Express app as a Netlify Function using serverless-http
+const serverless = require('serverless-http');
+const baseHandler = serverless(app);
+
+// Wrap the handler to parse multipart form data for file uploads
+module.exports.handler = async (event, context) => {
+  // Check if this is a file upload request
+  const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
+  
+  if (contentType.includes('multipart/form-data') && 
+      (event.path.includes('/content/upload') || event.path.includes('/api/content/upload'))) {
+    try {
+      console.log('[Upload] Parsing multipart form data...');
+      
+      // Parse multipart form data
+      const { fields, files } = await parseMultipartForm(event);
+      
+      console.log('[Upload] Parsed fields:', Object.keys(fields));
+      console.log('[Upload] Parsed files:', files.length);
+      
+      // Attach parsed data to event for Express to access via req.apiGateway.event
+      if (files.length > 0) {
+        const file = files[0];
+        event._parsedFile = {
+          fieldname: file.fieldname,
+          originalname: file.filename,
+          filename: file.filename,
+          mimetype: file.mimetype,
+          buffer: file.buffer,
+          size: file.buffer.length
+        };
+        console.log('[Upload] File attached:', file.filename, file.mimetype, file.buffer.length, 'bytes');
+      }
+      
+      event._parsedFields = fields;
+      
+      // Convert to JSON body for Express to parse
+      event.body = JSON.stringify(fields);
+      event.headers['content-type'] = 'application/json';
+      delete event.headers['Content-Type'];
+      event.isBase64Encoded = false;
+      
+      // Call the base serverless handler with modified event
+      const response = await baseHandler(event, context);
+      return response;
+    } catch (error) {
+      console.error('[Upload] Error parsing multipart form:', error);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Failed to parse file upload', details: error.message })
+      };
+    }
+  }
+  
+  // For non-upload requests, use the standard handler
+  return baseHandler(event, context);
+};
