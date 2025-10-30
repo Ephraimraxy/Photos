@@ -1,0 +1,64 @@
+[build]
+  # Build command for Netlify
+  command = "npm run build:client"
+  
+  # Base directory for the build
+  base = "."
+  
+  # Directory to publish
+  publish = "client/dist"
+
+[build.environment]
+  # Node.js version
+  NODE_VERSION = "20"
+  
+  # Force npm to install devDependencies during build
+  NPM_FLAGS = "--include=dev"
+  
+  # Environment variables for runtime (these will be set in Netlify dashboard)
+  PORT = "5000"
+  
+  # Secrets scanning configuration
+  SECRETS_SCAN_OMIT_PATHS = "**.md,deploy-setup.sh,deploy-setup.bat,.replit,client/dist/**"
+  SECRETS_SCAN_OMIT_KEYS = "NODE_ENV,PORT"
+
+# Functions configuration for serverless functions
+[functions]
+  # Directory for Netlify Functions
+  directory = "netlify/functions"
+
+# Redirects for API to Netlify Function (preserve path with :splat)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+# Handle client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers for security and performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Cache static assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache API responses
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
