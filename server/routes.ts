@@ -5,8 +5,26 @@ import axios from "axios";
 import { getUncachableGoogleDriveClient, extractFileIdFromUrl, extractFolderIdFromUrl, getFolderContents, categorizeFileByMimeType } from "./google-drive";
 import { addWatermarkToImageBuffer } from "./watermark";
 import { randomUUID } from "crypto";
+import multer from "multer";
+import { Readable } from "stream";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  
+  // Configure multer for file uploads (memory storage)
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 100 * 1024 * 1024, // 100MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      // Accept images and videos only
+      if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only image and video files are allowed'));
+      }
+    },
+  });
   
   // Security middleware for webhook endpoints
   app.use('/api/payment/webhook', (req, res, next) => {
@@ -208,6 +226,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Coupon validation error:", error);
       res.status(500).json({ error: "Failed to validate coupon requirements" });
+    }
+  });
+
+  // Upload file from local device to Google Drive
+  app.post("/api/content/upload", upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const { title } = req.body;
+      if (!title) {
+        return res.status(400).json({ error: "Title is required" });
+      }
+
+      const file = req.file;
+      const mimeType = file.mimetype;
+      const isImage = mimeType.startsWith('image/');
+      const isVideo = mimeType.startsWith('video/');
+
+      if (!isImage && !isVideo) {
+        return res.status(400).json({ error: "Only image and video files are allowed" });
+      }
+
+      const type = isImage ? 'image' : 'video';
+
+      // Upload to Google Drive
+      const drive = await getUncachableGoogleDriveClient();
+
+      // Create readable stream from buffer
+      const bufferStream = new Readable();
+      bufferStream.push(file.buffer);
+      bufferStream.push(null);
+
+      // Upload file to Google Drive
+      const driveResponse = await drive.files.create({
+        requestBody: {
+          name: file.originalname,
+          mimeType: file.mimetype,
+        },
+        media: {
+          mimeType: file.mimetype,
+          body: bufferStream,
+        },
+        fields: 'id,name,mimeType,size,webContentLink,webViewLink,thumbnailLink,videoMediaMetadata',
+      });
+
+      const fileId = driveResponse.data.id!;
+
+      // Make file publicly accessible
+      try {
+        await drive.permissions.create({
+          fileId: fileId,
+          requestBody: {
+            role: 'reader',
+            type: 'anyone',
+          },
+        });
+      } catch (permError) {
+        console.warn('Could not make file public, it may have restricted access:', permError);
+      }
+
+      // Create content record
+      const content = await storage.createContent({
+        title,
+        type,
+        googleDriveId: fileId,
+        googleDriveUrl: driveResponse.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+        mimeType: mimeType,
+        fileSize: file.size,
+        duration: driveResponse.data.videoMediaMetadata?.durationMillis 
+          ? Math.floor(parseInt(driveResponse.data.videoMediaMetadata.durationMillis) / 1000)
+          : null,
+      });
+
+      res.json(content);
+    } catch (error: any) {
+      console.error("File upload error:", error);
+      res.status(500).json({ error: error?.message || "Failed to upload file" });
     }
   });
 
