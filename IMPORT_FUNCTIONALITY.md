@@ -91,8 +91,10 @@ Both import methods show a progress modal displaying:
 
 ### Upload from File
 - **Endpoint**: `POST /api/content/upload`
-- **Body**: FormData with `file` and `title`
-- **Response**: Uploaded content object
+- **Body**: FormData with `file` (multipart) and `title`
+- **File Handling**: Uses multer middleware with memory storage (100MB limit)
+- **Process**: File is uploaded from local device → stored in Google Drive → metadata saved to database
+- **Response**: Uploaded content object with Google Drive details
 
 ### Import from Google Drive (Individual File)
 - **Endpoint**: `POST /api/content/google-drive`
