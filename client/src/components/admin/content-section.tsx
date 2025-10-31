@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type Content } from "@shared/schema";
-import { Trash2, Image, Video, ExternalLink, Loader2, Trash, CheckSquare, Square } from "lucide-react";
+import { Trash2, Image, Video, ExternalLink, Loader2, Trash, CheckSquare, Square, Upload } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +26,9 @@ export default function ContentSection() {
   const [contentToDelete, setContentToDelete] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [progressState, setProgressState] = useState<{ current: number; total: number; file: string; success: number; failed: number }>({ current: 0, total: 0, file: '', success: 0, failed: 0 });
 
   const { data: content, isLoading } = useQuery<Content[]>({
     queryKey: ["/api/content"],
@@ -115,6 +118,66 @@ export default function ContentSection() {
     }
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFilesSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    try {
+      const existingNames = new Set((content || []).map(c => (c.title || "").trim().toLowerCase()));
+      const seenInSelection = new Set<string>();
+      const toUpload: File[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const name = files[i].name.trim().toLowerCase();
+        if (existingNames.has(name)) continue; // skip duplicates already uploaded
+        if (seenInSelection.has(name)) continue; // skip duplicates within the same selection
+        seenInSelection.add(name);
+        toUpload.push(files[i]);
+      }
+
+      if (toUpload.length === 0) {
+        toast({ title: "No new files", description: "All selected files are duplicates by name." });
+        e.target.value = "";
+        return;
+      }
+
+      setProgressState({ current: 0, total: toUpload.length, file: '', success: 0, failed: 0 });
+      setProgressOpen(true);
+      let successCount = 0;
+      let failedCount = 0;
+      for (let i = 0; i < toUpload.length; i++) {
+        const file = toUpload[i];
+        setProgressState(prev => ({ ...prev, current: i + 1, file: file.name, success: successCount, failed: failedCount }));
+        const form = new FormData();
+        form.append("file", file);
+        form.append("title", file.name);
+        const res = await fetch("/api/content/upload", { method: "POST", body: form });
+        if (!res.ok) {
+          const msg = await res.text();
+          failedCount++;
+          setProgressState(prev => ({ ...prev, success: successCount, failed: failedCount }));
+          continue;
+        }
+        await res.json();
+        successCount++;
+        setProgressState(prev => ({ ...prev, success: successCount }));
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      setProgressOpen(false);
+      toast({ title: "Upload complete", description: `${successCount} succeeded, ${failedCount} failed` });
+    } catch (err: any) {
+      setProgressOpen(false);
+      toast({ title: "Upload failed", description: err?.message || "", variant: "destructive" });
+    } finally {
+      e.target.value = "";
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
@@ -144,6 +207,20 @@ export default function ContentSection() {
           ))}
         </div>
       </div>
+
+      <AlertDialog open={progressOpen} onOpenChange={setProgressOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Uploading files</AlertDialogTitle>
+            <AlertDialogDescription>
+              {progressState.current} / {progressState.total} • {progressState.file}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2 text-sm text-muted-foreground">
+            Success: {progressState.success} • Failed: {progressState.failed}
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     );
   }
 
@@ -157,26 +234,41 @@ export default function ContentSection() {
           </p>
         </div>
         
-        {selectedItems.size > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
-              {selectedItems.size} selected
-            </span>
-            <Button
-              onClick={handleBulkDelete}
-              variant="destructive"
-              size="sm"
-              disabled={bulkDeleteMutation.isPending}
-            >
-              {bulkDeleteMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Trash className="w-4 h-4 mr-2" />
-              )}
-              Delete Selected
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {selectedItems.size > 0 && (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {selectedItems.size} selected
+              </span>
+              <Button
+                onClick={handleBulkDelete}
+                variant="destructive"
+                size="sm"
+                disabled={bulkDeleteMutation.isPending}
+              >
+                {bulkDeleteMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash className="w-4 h-4 mr-2" />
+                )}
+                Delete Selected
+              </Button>
+            </>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="hidden"
+            onChange={handleFilesSelected}
+          />
+          <Button variant="default" size="sm" onClick={handleUploadClick}>
+            <Upload className="w-4 h-4 mr-2" />
+            Upload
+          </Button>
+        </div>
       </div>
 
       {!content || content.length === 0 ? (

@@ -162,6 +162,55 @@ const coupons = {
 // Database connection
 let db = null;
 let sqlConnection = null;
+let schemaInitialized = false;
+
+const ensureSchema = async () => {
+  if (schemaInitialized) return;
+  // Create required tables if they do not exist
+  await sqlConnection`CREATE TABLE IF NOT EXISTS content (
+    id uuid PRIMARY KEY,
+    title text,
+    type text,
+    thumbnailUrl text,
+    downloadUrl text,
+    googleDriveId text,
+    createdAt timestamp DEFAULT now()
+  )`;
+
+  await sqlConnection`CREATE TABLE IF NOT EXISTS purchases (
+    id uuid PRIMARY KEY,
+    trackingCode text,
+    userName text,
+    uniqueId text,
+    contentIds json,
+    totalAmount integer,
+    status text,
+    paystackReference text,
+    couponId uuid,
+    createdAt timestamp DEFAULT now()
+  )`;
+
+  await sqlConnection`CREATE TABLE IF NOT EXISTS downloadTokens (
+    id uuid PRIMARY KEY,
+    purchaseId uuid,
+    contentId uuid,
+    token text,
+    expiresAt timestamp,
+    used boolean DEFAULT false,
+    createdAt timestamp DEFAULT now()
+  )`;
+
+  await sqlConnection`CREATE TABLE IF NOT EXISTS coupons (
+    id uuid PRIMARY KEY,
+    code text,
+    imageCount integer,
+    videoCount integer,
+    isActive boolean DEFAULT true,
+    createdAt timestamp DEFAULT now()
+  )`;
+
+  schemaInitialized = true;
+};
 
 const initDB = async () => {
   if (db) return db;
@@ -173,6 +222,7 @@ const initDB = async () => {
 
   sqlConnection = postgres(connectionString);
   db = drizzle(sqlConnection);
+  await ensureSchema();
   return db;
 };
 

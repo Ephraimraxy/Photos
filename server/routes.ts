@@ -1,15 +1,24 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import axios from "axios";
-import { getUncachableGoogleDriveClient, extractFileIdFromUrl, extractFolderIdFromUrl, getFolderContents, categorizeFileByMimeType } from "./google-drive";
-import { addWatermarkToImageBuffer } from "./watermark";
+import { getUncachableGoogleDriveClient, getGoogleDriveClientWithWriteAccess, extractFileIdFromUrl, extractFolderIdFromUrl, getFolderContents, categorizeFileByMimeType } from "./google-drive";
+import { addWatermarkToImageBuffer, addWatermarkToVideo } from "./watermark";
+import fs from "fs";
+import path from "path";
 import { randomUUID } from "crypto";
 import multer from "multer";
 import { Readable } from "stream";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  
+  // Ensure local uploads directory exists and is served statically
+  const uploadsDir = path.resolve(process.cwd(), "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  app.use('/uploads', express.static(uploadsDir));
+
   // Configure multer for file uploads (memory storage)
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -229,17 +238,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload file from local device to Google Drive
+  // Upload file from local device to local storage
   app.post("/api/content/upload", upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const { title } = req.body;
-      if (!title) {
-        return res.status(400).json({ error: "Title is required" });
-      }
+      const title = req.body?.title || req.file.originalname || 'Untitled';
 
       const file = req.file;
       const mimeType = file.mimetype;
@@ -252,56 +258,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const type = isImage ? 'image' : 'video';
 
-      // Upload to Google Drive
-      const drive = await getUncachableGoogleDriveClient();
-
-      // Create readable stream from buffer
-      const bufferStream = new Readable();
-      bufferStream.push(file.buffer);
-      bufferStream.push(null);
-
-      // Upload file to Google Drive
-      const driveResponse = await drive.files.create({
-        requestBody: {
-          name: file.originalname,
-          mimeType: file.mimetype,
-        },
-        media: {
-          mimeType: file.mimetype,
-          body: bufferStream,
-        },
-        fields: 'id,name,mimeType,size,webContentLink,webViewLink,thumbnailLink,videoMediaMetadata',
-      });
-
-      const fileId = driveResponse.data.id!;
-
-      // Make file publicly accessible
+      // Avoid duplicates by title (case-insensitive)
       try {
-        await drive.permissions.create({
-          fileId: fileId,
-          requestBody: {
-            role: 'reader',
-            type: 'anyone',
-          },
-        });
-      } catch (permError) {
-        console.warn('Could not make file public, it may have restricted access:', permError);
+        const all = await storage.getAllContent();
+        const existing = all.find(c => (c.title || '').trim().toLowerCase() === title.trim().toLowerCase());
+        if (existing) {
+          return res.json(existing);
+        }
+      } catch (_) {}
+
+      // Persist file locally with a unique filename
+      const ext = path.extname(file.originalname) || (isImage ? '.jpg' : '.bin');
+      const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'upload';
+      const uniqueName = `${base}-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
+      const destPath = path.join(uploadsDir, uniqueName);
+      fs.writeFileSync(destPath, file.buffer);
+
+      // Validate and generate preview
+      let durationSeconds: number | null = null;
+      let previewGenerated = false;
+      if (isImage) {
+        try {
+          // Basic validation: ensure sharp can read it, then make a preview
+          await addWatermarkToImageBuffer(file.buffer);
+          const previewPath = destPath.replace(ext, '.preview.jpg');
+          const watermarked = await addWatermarkToImageBuffer(file.buffer);
+          fs.writeFileSync(previewPath, watermarked);
+          previewGenerated = true;
+        } catch (e: any) {
+          // Cleanup original if image is invalid
+          try { if (fs.existsSync(destPath)) fs.unlinkSync(destPath); } catch (_) {}
+          return res.status(415).json({ error: `Invalid or unreadable image: ${title}` });
+        }
       }
 
-      // Create content record
-      const content = await storage.createContent({
+      // For videos, generate a preview thumbnail placeholder
+      if (isVideo) {
+        try {
+          await addWatermarkToVideo(destPath, destPath);
+        } catch (_) {
+          // proceed; we still have the original and can try again later
+        }
+      }
+
+      const created = await storage.createContent({
         title,
         type,
-        googleDriveId: fileId,
-        googleDriveUrl: driveResponse.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+        // Reuse fields to store local identifiers/URLs
+        googleDriveId: `local:${uniqueName}`,
+        googleDriveUrl: `/uploads/${uniqueName}`,
         mimeType: mimeType,
         fileSize: file.size,
-        duration: driveResponse.data.videoMediaMetadata?.durationMillis 
-          ? Math.floor(parseInt(driveResponse.data.videoMediaMetadata.durationMillis) / 1000)
-          : null,
-      });
+        duration: durationSeconds,
+      } as any);
 
-      res.json(content);
+      res.json(created);
     } catch (error: any) {
       console.error("File upload error:", error);
       res.status(500).json({ error: error?.message || "Failed to upload file" });
@@ -441,7 +452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Proxy endpoint to serve watermarked preview from Google Drive
+  // Serve watermarked preview (local files or Google Drive fallback)
   app.get("/api/content/:id/preview", async (req, res) => {
     try {
       const content = await storage.getContentById(req.params.id);
@@ -449,33 +460,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Content not found" });
       }
 
-      const drive = await getUncachableGoogleDriveClient();
+      // Local storage path detection
+      const isLocal = content.googleDriveId?.startsWith('local:') || content.googleDriveUrl?.startsWith('/uploads/');
+      if (isLocal) {
+        const fileName = content.googleDriveId.replace('local:', '');
+        const localPath = path.join(uploadsDir, fileName);
+        if (!fs.existsSync(localPath)) {
+          return res.status(404).json({ error: "Local file not found" });
+        }
 
+        if (content.type === 'image') {
+          const previewPath = localPath.replace(/\.[^.]+$/, '.preview.jpg');
+          if (fs.existsSync(previewPath)) {
+            const buf = fs.readFileSync(previewPath);
+            res.set('Content-Type', 'image/jpeg');
+            return res.send(buf);
+          }
+          try {
+            const originalBuffer = fs.readFileSync(localPath);
+            const watermarkedBuffer = await addWatermarkToImageBuffer(originalBuffer);
+            fs.writeFileSync(previewPath, watermarkedBuffer);
+            res.set('Content-Type', 'image/jpeg');
+            return res.send(watermarkedBuffer);
+          } catch (_) {
+            const transparentPng = Buffer.from(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAqMBgQwQq3UAAAAASUVORK5CYII=',
+              'base64'
+            );
+            res.set('Content-Type', 'image/png');
+            return res.send(transparentPng);
+          }
+        } else {
+          // For videos, try to serve generated thumbnail if exists, otherwise a basic 1x1 PNG
+          const thumbPath = localPath.replace(/\.(mp4|webm|mov)$/i, '.jpg');
+          if (fs.existsSync(thumbPath)) {
+            const thumb = fs.readFileSync(thumbPath);
+            res.set('Content-Type', 'image/jpeg');
+            return res.send(thumb);
+          }
+          const transparentPng = Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAqMBgQwQq3UAAAAASUVORK5CYII=',
+            'base64'
+          );
+          res.set('Content-Type', 'image/png');
+          return res.send(transparentPng);
+        }
+      }
+
+      // Fallback to Google Drive for legacy records
+      const drive = await getUncachableGoogleDriveClient();
       if (content.type === "image") {
-        // For images, fetch from Google Drive and apply watermark
         const response = await drive.files.get(
           { fileId: content.googleDriveId, alt: 'media' },
           { responseType: 'arraybuffer' }
         );
-
         const imageBuffer = Buffer.from(response.data as ArrayBuffer);
         const watermarkedBuffer = await addWatermarkToImageBuffer(imageBuffer);
-
         res.set('Content-Type', 'image/jpeg');
-        res.send(watermarkedBuffer);
+        return res.send(watermarkedBuffer);
       } else {
-        // For videos, get thumbnail from Google Drive
-        const fileMetadata = await drive.files.get({
-          fileId: content.googleDriveId,
-          fields: "thumbnailLink"
-        });
-
+        const fileMetadata = await drive.files.get({ fileId: content.googleDriveId, fields: "thumbnailLink" });
         if (fileMetadata.data.thumbnailLink) {
-          // Redirect to Google's thumbnail
-          res.redirect(fileMetadata.data.thumbnailLink);
-        } else {
-          res.status(404).json({ error: "Thumbnail not available" });
+          return res.redirect(fileMetadata.data.thumbnailLink);
         }
+        return res.status(404).json({ error: "Thumbnail not available" });
       }
     } catch (error) {
       console.error("Preview error:", error);
@@ -489,6 +537,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const content = await storage.getContentById(req.params.id);
       if (!content) {
         return res.status(404).json({ error: "Content not found" });
+      }
+
+      // If local, remove stored file and generated thumbnail
+      const isLocal = content.googleDriveId?.startsWith('local:') || content.googleDriveUrl?.startsWith('/uploads/');
+      if (isLocal) {
+        const fileName = content.googleDriveId.replace('local:', '');
+        const localPath = path.join(uploadsDir, fileName);
+        const thumbPath = localPath.replace(/\.(mp4|webm|mov)$/i, '.jpg');
+        try {
+          if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+          if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+        } catch (_) {}
       }
 
       await storage.deleteContent(req.params.id);
@@ -906,7 +966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Download content from Google Drive (requires valid token)
+  // Download content (local files or Google Drive) with a valid token
   app.get("/api/download/:token", async (req, res) => {
     try {
       const downloadToken = await storage.getDownloadToken(req.params.token);
@@ -928,24 +988,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Content not found" });
       }
 
+      // Local file download
+      const isLocal = content.googleDriveId?.startsWith('local:') || content.googleDriveUrl?.startsWith('/uploads/');
+      if (isLocal) {
+        const fileName = content.googleDriveId.replace('local:', '');
+        const localPath = path.join(uploadsDir, fileName);
+        if (!fs.existsSync(localPath)) {
+          return res.status(404).json({ error: "File not found" });
+        }
+        await storage.markTokenAsUsed(req.params.token);
+        res.set('Content-Type', content.mimeType);
+        res.set('Content-Disposition', `attachment; filename="${content.title}"`);
+        return fs.createReadStream(localPath).pipe(res);
+      }
+
+      // Google Drive fallback for legacy items
       const drive = await getUncachableGoogleDriveClient();
-
-      // Get file metadata for filename
-      const fileMetadata = await drive.files.get({
-        fileId: content.googleDriveId,
-        fields: "name"
-      });
-
-      // Download from Google Drive
-      const response = await drive.files.get(
-        { fileId: content.googleDriveId, alt: 'media' },
-        { responseType: 'arraybuffer' }
-      );
-
-      // Mark token as used
+      const fileMetadata = await drive.files.get({ fileId: content.googleDriveId, fields: "name" });
+      const response = await drive.files.get({ fileId: content.googleDriveId, alt: 'media' }, { responseType: 'arraybuffer' });
       await storage.markTokenAsUsed(req.params.token);
-
-      // Send file
       res.set('Content-Type', content.mimeType);
       res.set('Content-Disposition', `attachment; filename="${fileMetadata.data.name || content.title}"`);
       res.send(Buffer.from(response.data as ArrayBuffer));

@@ -61,10 +61,40 @@ async function getAccessToken() {
         'https://developers.google.com/oauthplayground'
       );
       
+      // Set the scopes we need: full Drive access for uploads and file management
       oauth2Client.setCredentials({
-        refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN
+        refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN,
+        // Also include access token if provided (may have full scopes)
+        access_token: process.env.GOOGLE_DRIVE_ACCESS_TOKEN
       });
       
+      // If access token is provided and still valid, use it (might have write scopes)
+      if (process.env.GOOGLE_DRIVE_ACCESS_TOKEN) {
+        // Test if the access token has write permissions by checking its expiry
+        // For now, try to get a new token which might have better scopes
+        try {
+          const { token } = await oauth2Client.getAccessToken();
+          if (token) {
+            // Cache the token for 55 minutes (tokens expire in 1 hour)
+            tokenCache = {
+              token: token!,
+              expiresAt: Date.now() + (55 * 60 * 1000) // 55 minutes
+            };
+            
+            // Save to persistent cache
+            saveTokenCache(tokenCache);
+            
+            console.log('✅ Google Drive token refreshed and cached successfully');
+            return token;
+          }
+        } catch (refreshError) {
+          console.warn('Failed to refresh token, using provided access token:', refreshError);
+          // Fall through to use access token directly
+          return process.env.GOOGLE_DRIVE_ACCESS_TOKEN;
+        }
+      }
+      
+      // If no access token provided, try to get one via refresh token
       const { token } = await oauth2Client.getAccessToken();
       
       // Cache the token for 55 minutes (tokens expire in 1 hour)
@@ -157,12 +187,59 @@ async function getAccessToken() {
 export async function getUncachableGoogleDriveClient() {
   const accessToken = await getAccessToken();
 
-  const oauth2Client = new google.auth.OAuth2();
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_DRIVE_CLIENT_ID,
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET
+  );
+  
   oauth2Client.setCredentials({
-    access_token: accessToken
+    access_token: accessToken,
+    refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN
   });
 
-  return google.drive({ version: 'v3', auth: oauth2Client });
+  return google.drive({ 
+    version: 'v3', 
+    auth: oauth2Client 
+  });
+}
+
+// Get a Google Drive client with write permissions (for uploads)
+export async function getGoogleDriveClientWithWriteAccess() {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_DRIVE_CLIENT_ID,
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET
+  );
+  
+  // Always refresh the token to ensure it's valid and has write permissions
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN
+  });
+  
+  try {
+    // Get a fresh access token using the refresh token
+    const { token } = await oauth2Client.getAccessToken();
+    if (!token) {
+      throw new Error('Failed to get access token from refresh token');
+    }
+    
+    oauth2Client.setCredentials({
+      access_token: token,
+      refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN
+    });
+    
+    return google.drive({ version: 'v3', auth: oauth2Client });
+  } catch (error) {
+    console.error('Failed to get write access token:', error);
+    // If refresh fails, try using the provided access token as fallback
+    if (process.env.GOOGLE_DRIVE_ACCESS_TOKEN) {
+      oauth2Client.setCredentials({
+        access_token: process.env.GOOGLE_DRIVE_ACCESS_TOKEN,
+        refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN
+      });
+      return google.drive({ version: 'v3', auth: oauth2Client });
+    }
+    throw error;
+  }
 }
 
 export function extractFileIdFromUrl(url: string): string | null {

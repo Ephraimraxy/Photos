@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { ensureSchema } from "./db";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
@@ -38,6 +39,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Ensure database schema exists before registering routes
+  try {
+    await ensureSchema();
+  } catch (e) {
+    console.error("Failed to ensure database schema:", e);
+  }
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
