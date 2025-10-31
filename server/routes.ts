@@ -258,10 +258,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const type = isImage ? 'image' : 'video';
 
-      // Avoid duplicates by title (case-insensitive)
+      // Compute checksum and avoid duplicates (checksum preferred, fallback to title)
       try {
+        const crypto = await import('crypto');
+        const checksum = crypto.createHash('sha256').update(file.buffer).digest('hex');
         const all = await storage.getAllContent();
-        const existing = all.find(c => (c.title || '').trim().toLowerCase() === title.trim().toLowerCase());
+        let existing = all.find(c => (c as any).checksum && (c as any).checksum === checksum);
+        if (!existing) {
+          existing = all.find(c => (c.title || '').trim().toLowerCase() === title.trim().toLowerCase());
+        }
         if (existing) {
           return res.json(existing);
         }
@@ -310,6 +315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         mimeType: mimeType,
         fileSize: file.size,
         duration: durationSeconds,
+        checksum: (await import('crypto')).createHash('sha256').update(file.buffer).digest('hex'),
       } as any);
 
       res.json(created);

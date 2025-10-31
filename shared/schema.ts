@@ -12,6 +12,7 @@ export const content = pgTable("content", {
   mimeType: text("mime_type").notNull(),
   fileSize: integer("file_size"),
   duration: integer("duration"), // for videos, in seconds
+  checksum: text("checksum"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

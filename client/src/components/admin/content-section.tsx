@@ -190,37 +190,39 @@ export default function ContentSection() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold">Content Management</h2>
-          <p className="text-muted-foreground">
-            Manage your uploaded content
-          </p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <div className="h-48 bg-muted animate-pulse rounded" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      <AlertDialog open={progressOpen} onOpenChange={setProgressOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Uploading files</AlertDialogTitle>
-            <AlertDialogDescription>
-              {progressState.current} / {progressState.total} • {progressState.file}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-2 text-sm text-muted-foreground">
-            Success: {progressState.success} • Failed: {progressState.failed}
+      <>
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-3xl font-bold">Content Management</h2>
+            <p className="text-muted-foreground">
+              Manage your uploaded content
+            </p>
           </div>
-        </AlertDialogContent>
-      </AlertDialog>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <div className="h-48 bg-muted animate-pulse rounded" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+
+        <AlertDialog open={progressOpen} onOpenChange={setProgressOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Uploading files</AlertDialogTitle>
+              <AlertDialogDescription>
+                {progressState.current} / {progressState.total} • {progressState.file}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-2 text-sm text-muted-foreground">
+              Success: {progressState.success} • Failed: {progressState.failed}
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
     );
   }
 
@@ -419,6 +421,19 @@ export default function ContentSection() {
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={progressOpen} onOpenChange={setProgressOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Uploading files</AlertDialogTitle>
+            <AlertDialogDescription>
+              {progressState.current} / {progressState.total} • {progressState.file}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2 text-sm text-muted-foreground">
+            Success: {progressState.success} • Failed: {progressState.failed}
+          </div>
         </AlertDialogContent>
       </AlertDialog>
     </div>

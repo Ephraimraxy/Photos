@@ -27,8 +27,23 @@ export async function ensureSchema(): Promise<void> {
       mime_type text NOT NULL,
       file_size integer,
       duration integer,
+      checksum text,
       created_at timestamp DEFAULT now() NOT NULL
     )`);
+
+    // Add checksum column if missing (idempotent)
+    await pool.query(`DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='content' AND column_name='checksum'
+      ) THEN
+        ALTER TABLE content ADD COLUMN checksum text;
+      END IF;
+    END $$;`);
+
+    // Optional: unique index on checksum to enforce dedup at DB level
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_content_checksum ON content (checksum) WHERE checksum IS NOT NULL`);
 
     await pool.query(`CREATE TABLE IF NOT EXISTS purchases (
       id varchar PRIMARY KEY DEFAULT gen_random_uuid()::text,

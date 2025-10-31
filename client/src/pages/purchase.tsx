@@ -7,6 +7,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, Download, Clock, ArrowLeft } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 interface PurchaseData {
   purchaseId: string;
@@ -87,6 +90,23 @@ export default function Purchase() {
     link.click();
     document.body.removeChild(link);
   };
+
+  // Auto-download all items once purchase is loaded
+  useEffect(() => {
+    if (!purchase?.items || purchase.items.length === 0) return;
+    let cancelled = false;
+    const run = async () => {
+      for (const item of purchase.items) {
+        if (cancelled) break;
+        try {
+          await new Promise((r) => setTimeout(r, 300));
+          await handleDownload(item.downloadToken, item.title);
+        } catch (_) {}
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [purchase?.items]);
 
   if (!purchaseId) {
     setLocation("/");
