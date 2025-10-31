@@ -10,6 +10,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import multer from "multer";
 import { Readable } from "stream";
+import { v2 as cloudinary } from "cloudinary";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure local uploads directory exists and is served statically
@@ -18,6 +19,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
   app.use('/uploads', express.static(uploadsDir));
+  try { cloudinary.config({ secure: true }); } catch (_) {}
 
   // Configure multer for file uploads (memory storage)
   const upload = multer({
@@ -238,7 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload file from local device to local storage
+  // Upload file from local device to Cloudinary if configured, else local
   app.post("/api/content/upload", upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
@@ -271,6 +273,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json(existing);
         }
       } catch (_) {}
+
+      const hasCloudinary = !!process.env.CLOUDINARY_URL;
+      if (hasCloudinary) {
+        const baseName = (path.basename(file.originalname, path.extname(file.originalname)) || 'upload')
+          .replace(/[^a-zA-Z0-9-_ ]/g, '')
+          .trim() || 'upload';
+        const publicId = `${baseName}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+        const uploadResult = await new Promise<any>((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              resource_type: 'auto',
+              folder: 'content',
+              public_id: publicId,
+              overwrite: false,
+              unique_filename: false,
+            },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          Readable.from(file.buffer).pipe(stream);
+        });
+
+        const created = await storage.createContent({
+          title,
+          type,
+          googleDriveId: `cld:${uploadResult.public_id}`,
+          googleDriveUrl: uploadResult.secure_url,
+          mimeType: mimeType,
+          fileSize: uploadResult.bytes || file.size,
+          duration: uploadResult.duration ? Math.floor(uploadResult.duration) : null,
+          checksum: (await import('crypto')).createHash('sha256').update(file.buffer).digest('hex'),
+        } as any);
+
+        return res.json(created);
+      }
 
       // Persist file locally with a unique filename
       const ext = path.extname(file.originalname) || (isImage ? '.jpg' : '.bin');
@@ -464,6 +503,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const content = await storage.getContentById(req.params.id);
       if (!content) {
         return res.status(404).json({ error: "Content not found" });
+      }
+
+      // Cloudinary preview
+      const isCloudinary = content.googleDriveId?.startsWith('cld:');
+      if (isCloudinary) {
+        const publicId = content.googleDriveId.replace('cld:', '');
+        if (content.type === 'image') {
+          const url = cloudinary.url(publicId, {
+            transformation: [
+              { width: 1200, crop: 'scale', quality: 'auto:eco' },
+              { overlay: { font_family: 'Arial', font_size: 60, font_weight: 'bold', text: 'DOCUEDIT PHOTOS' }, gravity: 'center', opacity: 30, angle: -45, color: 'white' }
+            ]
+          });
+          return res.redirect(url);
+        } else {
+          const url = cloudinary.url(publicId, {
+            resource_type: 'video',
+            format: 'jpg',
+            transformation: [ { width: 1200, crop: 'scale', quality: 'auto:eco' } ]
+          });
+          return res.redirect(url);
+        }
       }
 
       // Local storage path detection
@@ -972,7 +1033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Download content (local files or Google Drive) with a valid token
+  // Download content (Cloudinary/local/Drive) with a valid token
   app.get("/api/download/:token", async (req, res) => {
     try {
       const downloadToken = await storage.getDownloadToken(req.params.token);
@@ -992,6 +1053,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const content = await storage.getContentById(downloadToken.contentId);
       if (!content) {
         return res.status(404).json({ error: "Content not found" });
+      }
+
+      // Cloudinary direct redirect
+      const isCloudinary = content.googleDriveId?.startsWith('cld:');
+      if (isCloudinary) {
+        await storage.markTokenAsUsed(req.params.token);
+        return res.redirect(content.googleDriveUrl);
       }
 
       // Local file download
