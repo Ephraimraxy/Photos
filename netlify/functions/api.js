@@ -363,66 +363,28 @@ app.get('/content/:id', async (req, res) => {
   }
 });
 
-// Content preview endpoint
+// Content preview endpoint (uses stored thumbnailUrl; for Cloudinary we set it via transformation)
 app.get('/content/:id/preview', async (req, res) => {
   try {
     const content = await storage.getContentById(req.params.id);
     if (!content) {
       return res.status(404).json({ error: 'Content not found' });
     }
-
-    // For now, return the thumbnail URL directly
-    res.redirect(content.thumbnailUrl);
+    if (content.thumbnailUrl) return res.redirect(content.thumbnailUrl);
+    return res.status(404).json({ error: 'Thumbnail not available' });
   } catch (error) {
     console.error('Content preview error:', error);
     res.status(500).json({ error: 'Failed to fetch content preview' });
   }
 });
 
-// Download content
+// Download content (redirects to stored downloadUrl)
 app.get('/content/:id/download', async (req, res) => {
   try {
-    const { token } = req.query;
-    
-    if (!token) {
-      return res.status(400).json({ error: 'Download token required' });
-    }
-
-    // Verify token and get content
-    const database = await initDB();
-    const downloadToken = await database.select()
-      .from(downloadTokens)
-      .where(and(
-        eq(downloadTokens.token, token),
-        eq(downloadTokens.contentId, req.params.id),
-        eq(downloadTokens.used, false)
-      ))
-      .limit(1);
-
-    if (downloadToken.length === 0) {
-      return res.status(404).json({ error: 'Invalid or expired download token' });
-    }
-
-    const tokenData = downloadToken[0];
-    
-    // Check if token is expired
-    if (new Date() > new Date(tokenData.expiresAt)) {
-      return res.status(410).json({ error: 'Download token has expired' });
-    }
-
-    // Mark token as used
-    await database.update(downloadTokens)
-      .set({ used: true })
-      .where(eq(downloadTokens.id, tokenData.id));
-
-    // Get content
     const content = await storage.getContentById(req.params.id);
-    if (!content) {
-      return res.status(404).json({ error: 'Content not found' });
-    }
-
-    // Redirect to Google Drive download URL
-    res.redirect(content.downloadUrl);
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+    if (!content.downloadUrl) return res.status(404).json({ error: 'Download URL not available' });
+    return res.redirect(content.downloadUrl);
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Failed to process download' });
@@ -849,66 +811,64 @@ app.post('/content/google-drive', async (req, res) => {
   }
 });
 
-// Upload single file and create content via Google Drive
-// Note: This won't work with regular Express middleware in Netlify Functions
-// We'll handle this through a special wrapper
+// Upload single file and create content via Cloudinary (serverless-friendly)
 app.post('/content/upload', async (req, res) => {
   try {
-    // In serverless environment, we can't use multer middleware
-    // Files will be parsed before reaching Express
-    console.log('Upload endpoint hit - req.file:', req.file, 'req.body:', req.body);
-    
+    if (!process.env.CLOUDINARY_URL) {
+      return res.status(500).json({ error: 'CLOUDINARY_URL not configured' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ error: 'File is required' });
     }
-    
-    const title = req.body?.title || req.file.originalname || req.file.filename;
-    const { drive } = initGoogleDrive();
 
-    const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
-    if (!folderId) {
-      return res.status(500).json({ error: 'GOOGLE_DRIVE_UPLOAD_FOLDER_ID not configured' });
-    }
+    const { v2: cloudinary } = require('cloudinary');
+    cloudinary.config({ secure: true });
 
-    // Upload to Google Drive
-    const fileMeta = {
-      name: title,
-      parents: [folderId],
-    };
-    const media = {
-      mimeType: req.file.mimetype,
-      body: Buffer.isBuffer(req.file.buffer)
-        ? require('stream').Readable.from(req.file.buffer)
-        : req.file.stream,
-    };
+    const title = req.body?.title || req.file.originalname || req.file.filename || 'Untitled';
+    const isVideo = (req.file.mimetype || '').startsWith('video/');
+    const baseName = (title.split('.').slice(0, -1).join('.') || 'upload').replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'upload';
+    const publicId = `${baseName}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
-    const uploadResp = await drive.files.create({
-      requestBody: fileMeta,
-      media,
-      fields: 'id, name'
+    const buffer = Buffer.isBuffer(req.file.buffer) ? req.file.buffer : Buffer.from([]);
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream({
+        resource_type: 'auto',
+        folder: 'content',
+        public_id: publicId,
+        overwrite: false,
+        unique_filename: false,
+      }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+      require('stream').Readable.from(buffer).pipe(stream);
     });
 
-    const fileId = uploadResp.data.id;
-
-    // Make public
-    try {
-      await drive.permissions.create({
-        fileId,
-        requestBody: { role: 'reader', type: 'anyone' }
+    // Build preview (thumbnail) URL via transformation
+    let thumbnailUrl;
+    if (isVideo) {
+      thumbnailUrl = cloudinary.url(uploadResult.public_id, {
+        resource_type: 'video',
+        format: 'jpg',
+        transformation: [ { width: 1200, crop: 'scale', quality: 'auto:eco' } ]
       });
-    } catch (_) {}
-
-    const type = req.file.mimetype?.startsWith('video/') ? 'video' : 'image';
-    const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-    const thumbnailUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+    } else {
+      thumbnailUrl = cloudinary.url(uploadResult.public_id, {
+        transformation: [
+          { width: 1200, crop: 'scale', quality: 'auto:eco' },
+          { overlay: { font_family: 'Arial', font_size: 60, font_weight: 'bold', text: 'DOCUEDIT PHOTOS' }, gravity: 'center', opacity: 30, angle: -45, color: 'white' }
+        ]
+      });
+    }
 
     const created = await storage.createContent({
       id: randomUUID(),
       title,
-      type,
+      type: isVideo ? 'video' : 'image',
       thumbnailUrl,
-      downloadUrl,
-      googleDriveId: fileId,
+      downloadUrl: uploadResult.secure_url,
+      googleDriveId: `cld:${uploadResult.public_id}`,
     });
 
     res.json(created);
