@@ -23,15 +23,16 @@
   SECRETS_SCAN_OMIT_KEYS = "NODE_ENV,PORT"
 
 # Functions configuration for serverless functions
-[functions]
-  # Directory for Netlify Functions
-  directory = "netlify/functions"
+# Functions disabled for this deploy (proxying API to external Node server)
+#[functions]
+#  directory = "netlify/functions"
 
 # Redirects for API to Netlify Function (preserve path with :splat)
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  to = "https://thick-run-bell-sas.trycloudflare.com/api/:splat"
   status = 200
+  force = true
 
 # Handle client-side routing
 [[redirects]]
