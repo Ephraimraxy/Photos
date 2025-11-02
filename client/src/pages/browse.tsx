@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CartSidebar } from "@/components/cart-sidebar";
 import { ContentCard } from "@/components/content-card";
-import { ShoppingCart, Image as ImageIcon, Video, QrCode, Gift } from "lucide-react";
+import { ShoppingCart, Image as ImageIcon, Video, QrCode, Gift, Search, X } from "lucide-react";
 import { type Content, type CartItem } from "@shared/schema";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -24,6 +24,7 @@ export default function Browse() {
   const [lookupCode, setLookupCode] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [userName, setUserName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [activeCoupon, setActiveCoupon] = useState<{
     couponId: string;
     imageCount: number;
@@ -53,8 +54,14 @@ export default function Browse() {
     localStorage.setItem("cart", JSON.stringify(cartItems));
   }, [cartItems]);
 
-  const images = content?.filter((c) => c.type === "image") || [];
-  const videos = content?.filter((c) => c.type === "video") || [];
+  const images = content?.filter((c) => 
+    c.type === "image" && 
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
+  const videos = content?.filter((c) => 
+    c.type === "video" && 
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
 
   const addToCart = (item: Content) => {
     // Check coupon limits if active
@@ -414,6 +421,31 @@ export default function Browse() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+        <div className="mb-6">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search by name or number..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10"
+              data-testid="input-search-content"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7"
+                onClick={() => setSearchQuery("")}
+                data-testid="button-clear-search"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "images" | "videos")} className="w-full">
           <div className="flex items-center justify-between mb-8">
             <TabsList className="bg-muted" data-testid="tabs-content-type">
