@@ -344,7 +344,7 @@ export default function ContentSection() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredContent.map((item) => (
-              <Card key={item.id} className="overflow-hidden">
+              <Card key={item.id} className="overflow-hidden" data-testid={`card-content-${item.id}`}>
                 <CardContent className="p-0">
                   <div className="aspect-video bg-muted relative">
                     <img
@@ -352,16 +352,18 @@ export default function ContentSection() {
                       alt={item.title}
                       className="w-full h-full object-cover"
                       loading="lazy"
+                      data-testid={`img-preview-${item.id}`}
                     />
                     <div className="absolute top-2 left-2">
                       <Checkbox
                         checked={selectedItems.has(item.id)}
                         onCheckedChange={() => handleSelectItem(item.id)}
                         className="bg-background/80"
+                        data-testid={`checkbox-select-${item.id}`}
                       />
                     </div>
                     <div className="absolute top-2 right-2">
-                      <Badge variant={item.type === "image" ? "default" : "destructive"}>
+                      <Badge variant={item.type === "image" ? "default" : "destructive"} data-testid={`badge-type-${item.id}`}>
                         {item.type === "image" ? (
                           <Image className="w-3 h-3 mr-1" />
                         ) : (
@@ -373,8 +375,8 @@ export default function ContentSection() {
                   </div>
                   <div className="p-4 space-y-3">
                     <div>
-                      <h3 className="font-semibold line-clamp-2 mb-1">{item.title}</h3>
-                      <p className="text-sm text-muted-foreground">
+                      <h3 className="font-semibold line-clamp-2 mb-1" data-testid={`text-title-${item.id}`}>{item.title}</h3>
+                      <p className="text-sm text-muted-foreground" data-testid={`text-date-${item.id}`}>
                         {formatDate(item.createdAt)}
                       </p>
                     </div>
@@ -384,6 +386,7 @@ export default function ContentSection() {
                         variant="outline"
                         size="sm"
                         onClick={() => window.open(item.googleDriveUrl, '_blank')}
+                        data-testid={`button-view-${item.id}`}
                       >
                         <ExternalLink className="w-3 h-3 mr-1" />
                         View
@@ -393,6 +396,7 @@ export default function ContentSection() {
                         size="sm"
                         onClick={() => handleDelete(item.id)}
                         disabled={deleteMutation.isPending}
+                        data-testid={`button-delete-${item.id}`}
                       >
                         {deleteMutation.isPending ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -418,10 +422,11 @@ export default function ContentSection() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
             >
               Delete
             </AlertDialogAction>
@@ -438,11 +443,12 @@ export default function ContentSection() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-bulk-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmBulkDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={bulkDeleteMutation.isPending}
+              data-testid="button-confirm-bulk-delete"
             >
               {bulkDeleteMutation.isPending ? (
                 <>
