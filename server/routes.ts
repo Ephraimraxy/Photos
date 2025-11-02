@@ -229,7 +229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload file from local device to Google Drive
+  // Upload file from local device (stored locally, NOT Google Drive)
   app.post("/api/content/upload", upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
@@ -252,53 +252,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const type = isImage ? 'image' : 'video';
 
-      // Upload to Google Drive
-      const drive = await getUncachableGoogleDriveClient();
+      // Generate unique filename
+      const fileId = randomUUID();
+      const fileExtension = file.originalname.split('.').pop() || '';
+      const filename = `${fileId}.${fileExtension}`;
+      const filepath = `uploads/${filename}`;
 
-      // Create readable stream from buffer
-      const bufferStream = new Readable();
-      bufferStream.push(file.buffer);
-      bufferStream.push(null);
+      // Save file locally
+      const fs = require('fs').promises;
+      await fs.writeFile(filepath, file.buffer);
 
-      // Upload file to Google Drive
-      const driveResponse = await drive.files.create({
-        requestBody: {
-          name: file.originalname,
-          mimeType: file.mimetype,
-        },
-        media: {
-          mimeType: file.mimetype,
-          body: bufferStream,
-        },
-        fields: 'id,name,mimeType,size,webContentLink,webViewLink,thumbnailLink,videoMediaMetadata',
-      });
-
-      const fileId = driveResponse.data.id!;
-
-      // Make file publicly accessible
-      try {
-        await drive.permissions.create({
-          fileId: fileId,
-          requestBody: {
-            role: 'reader',
-            type: 'anyone',
-          },
-        });
-      } catch (permError) {
-        console.warn('Could not make file public, it may have restricted access:', permError);
-      }
-
-      // Create content record
+      // Create content record with local file reference
       const content = await storage.createContent({
         title,
         type,
-        googleDriveId: fileId,
-        googleDriveUrl: driveResponse.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+        googleDriveId: fileId, // Using as local file ID
+        googleDriveUrl: `/api/uploads/${filename}`, // Local file URL
         mimeType: mimeType,
         fileSize: file.size,
-        duration: driveResponse.data.videoMediaMetadata?.durationMillis 
-          ? Math.floor(parseInt(driveResponse.data.videoMediaMetadata.durationMillis) / 1000)
-          : null,
+        duration: null, // We can add video duration parsing later if needed
       });
 
       res.json(content);
