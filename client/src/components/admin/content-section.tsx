@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type Content } from "@shared/schema";
-import { Trash2, Image, Video, ExternalLink, Loader2, Trash, CheckSquare, Square } from "lucide-react";
+import { Trash2, Image, Video, ExternalLink, Loader2, Trash, CheckSquare, Square, Upload, Search, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +27,9 @@ export default function ContentSection() {
   const [contentToDelete, setContentToDelete] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [uploadingFiles, setUploadingFiles] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: content, isLoading } = useQuery<Content[]>({
     queryKey: ["/api/content"],
@@ -72,6 +76,62 @@ export default function ContentSection() {
       });
     },
   });
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const fileArray = Array.from(files);
+    const fileNames = fileArray.map(f => f.name);
+    setUploadingFiles(fileNames);
+
+    try {
+      const uploadPromises = fileArray.map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', file.name);
+
+        const response = await fetch('/api/content/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Upload failed');
+        }
+
+        return response.json();
+      });
+
+      await Promise.all(uploadPromises);
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      toast({
+        title: "Upload Successful",
+        description: `${fileArray.length} file(s) uploaded successfully`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Failed to upload files",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const filteredContent = content?.filter((item) =>
+    item.title.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
 
   const handleDelete = (id: string) => {
     setContentToDelete(id);
@@ -149,34 +209,90 @@ export default function ContentSection() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold">Content Management</h2>
-          <p className="text-muted-foreground">
-            Manage your uploaded content ({content?.length || 0} items)
-          </p>
-        </div>
-        
-        {selectedItems.size > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
-              {selectedItems.size} selected
-            </span>
-            <Button
-              onClick={handleBulkDelete}
-              variant="destructive"
-              size="sm"
-              disabled={bulkDeleteMutation.isPending}
-            >
-              {bulkDeleteMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Trash className="w-4 h-4 mr-2" />
-              )}
-              Delete Selected
-            </Button>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold">Content Management</h2>
+            <p className="text-muted-foreground">
+              Manage your uploaded content ({filteredContent.length} of {content?.length || 0} items)
+            </p>
           </div>
-        )}
+          
+          {selectedItems.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedItems.size} selected
+              </span>
+              <Button
+                onClick={handleBulkDelete}
+                variant="destructive"
+                size="sm"
+                disabled={bulkDeleteMutation.isPending}
+                data-testid="button-delete-selected"
+              >
+                {bulkDeleteMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash className="w-4 h-4 mr-2" />
+                )}
+                Delete Selected
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search by filename..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10"
+              data-testid="input-search"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7"
+                onClick={() => setSearchQuery("")}
+                data-testid="button-clear-search"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+          
+          <Button
+            onClick={handleUploadClick}
+            disabled={uploadingFiles.length > 0}
+            data-testid="button-upload"
+          >
+            {uploadingFiles.length > 0 ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Uploading {uploadingFiles.length} file(s)...
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4 mr-2" />
+                Upload Files
+              </>
+            )}
+          </Button>
+          
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            onChange={handleFileUpload}
+            className="hidden"
+            data-testid="input-file"
+          />
+        </div>
       </div>
 
       {!content || content.length === 0 ? (
@@ -185,7 +301,17 @@ export default function ContentSection() {
             <Image className="w-12 h-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-semibold mb-2">No content yet</h3>
             <p className="text-muted-foreground text-center">
-              Import your first images or videos from Google Drive to get started.
+              Click the "Upload Files" button above to upload images or videos from your device.
+            </p>
+          </CardContent>
+        </Card>
+      ) : filteredContent.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Search className="w-12 h-12 text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No results found</h3>
+            <p className="text-muted-foreground text-center">
+              No content matches your search "{searchQuery}"
             </p>
           </CardContent>
         </Card>
@@ -199,6 +325,7 @@ export default function ContentSection() {
                 size="sm"
                 onClick={handleSelectAll}
                 className="flex items-center gap-2"
+                data-testid="button-select-all"
               >
                 {selectedItems.size === content?.length ? (
                   <CheckSquare className="w-4 h-4" />
@@ -216,7 +343,7 @@ export default function ContentSection() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {content.map((item) => (
+            {filteredContent.map((item) => (
               <Card key={item.id} className="overflow-hidden">
                 <CardContent className="p-0">
                   <div className="aspect-video bg-muted relative">
