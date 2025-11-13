@@ -10,7 +10,8 @@ import {
   Gift, 
   ArrowLeft,
   Menu,
-  X
+  X,
+  LogOut
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -18,6 +19,7 @@ interface AdminLayoutProps {
   children: React.ReactNode;
   currentSection: string;
   onSectionChange: (section: string) => void;
+  onLogout?: () => void;
 }
 
 const navigationItems = [
@@ -28,7 +30,7 @@ const navigationItems = [
   { id: "coupons", label: "Coupons", icon: Gift },
 ];
 
-export default function AdminLayout({ children, currentSection, onSectionChange }: AdminLayoutProps) {
+export default function AdminLayout({ children, currentSection, onSectionChange, onLogout }: AdminLayoutProps) {
   const [, setLocation] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -52,6 +54,17 @@ export default function AdminLayout({ children, currentSection, onSectionChange 
               </h1>
             </div>
             <div className="flex items-center gap-4">
+              {onLogout && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onLogout}
+                  className="gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">Logout</span>
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"

@@ -388,14 +388,6 @@ export default function Browse() {
                 </DialogContent>
               </Dialog>
               
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setLocation("/admin")}
-                data-testid="button-admin"
-              >
-                <span className="text-sm font-medium">Admin</span>
-              </Button>
               <ThemeToggle />
               <Button
                 variant="ghost"
