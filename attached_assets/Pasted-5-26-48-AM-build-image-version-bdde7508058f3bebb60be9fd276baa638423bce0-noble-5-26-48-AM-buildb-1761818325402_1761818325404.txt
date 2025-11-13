@@ -1,0 +1,249 @@
+5:26:48 AM: build-image version: bdde7508058f3bebb60be9fd276baa638423bce0 (noble)
+5:26:48 AM: buildbot version: 6e7a6a2557e0a0eca440918037550266ac08c7be
+5:26:48 AM: Fetching cached dependencies
+5:26:49 AM: Starting to download cache of 311.1MB (Last modified: 2025-10-30 03:26:43 +0000 UTC)
+5:26:49 AM: Finished downloading cache in 861ms
+5:26:49 AM: Starting to extract cache
+5:26:54 AM: Finished extracting cache in 5.012s
+5:26:54 AM: Finished fetching cache in 5.93s
+5:26:54 AM: Starting to prepare the repo for build
+5:26:55 AM: Preparing Git Reference refs/heads/main
+5:26:56 AM: Starting to install dependencies
+5:26:56 AM: Started restoring cached python cache
+5:26:56 AM: Finished restoring cached python cache
+5:26:56 AM: Started restoring cached ruby cache
+5:26:57 AM: Finished restoring cached ruby cache
+5:26:57 AM: Started restoring cached go cache
+5:26:57 AM: Finished restoring cached go cache
+5:26:58 AM: Started restoring cached Node.js version
+5:26:59 AM: Finished restoring cached Node.js version
+5:27:00 AM: v20.19.5 is already installed.
+5:27:00 AM: Now using node v20.19.5 (npm v10.8.2)
+5:27:00 AM: Enabling Node.js Corepack
+5:27:01 AM: Started restoring cached build plugins
+5:27:01 AM: Finished restoring cached build plugins
+5:27:01 AM: WARNING: The environment variable 'NODE_ENV' is set to '****'. Any 'devDependencies' in package.json will not be installed
+5:27:01 AM: Started restoring cached corepack dependencies
+5:27:01 AM: Finished restoring cached corepack dependencies
+5:27:01 AM: No npm workspaces detected
+5:27:01 AM: Started restoring cached node modules
+5:27:01 AM: Finished restoring cached node modules
+5:27:01 AM: Installing npm packages using npm version 10.8.2
+5:27:03 AM: up to date, audited 544 packages in 3s
+5:27:03 AM: 78 packages are looking for funding
+5:27:03 AM:   run `npm fund` for details
+5:27:03 AM: 8 vulnerabilities (3 low, 5 moderate)
+5:27:03 AM: To address issues that do not require attention, run:
+5:27:03 AM:   npm audit fix
+5:27:03 AM: To address all issues (including breaking changes), run:
+5:27:03 AM:   npm audit fix --force
+5:27:03 AM: Run `npm audit` for details.
+5:27:03 AM: npm packages installed
+5:27:04 AM: Successfully installed dependencies
+5:27:04 AM: Starting build script
+5:27:04 AM: Detected 1 framework(s)
+5:27:04 AM: "vite" at version "5.4.20"
+5:27:04 AM: Section completed: initializing
+5:27:06 AM: ​
+5:27:06 AM: Netlify Build                                                 
+5:27:06 AM: ────────────────────────────────────────────────────────────────
+5:27:06 AM: ​
+5:27:06 AM: ❯ Version
+5:27:06 AM:   @netlify/build 35.2.8
+5:27:06 AM: ​
+5:27:06 AM: ❯ Flags
+5:27:06 AM:   accountId: 6825898b9729e9445d7f1280
+5:27:06 AM:   baseRelDir: true
+5:27:06 AM:   buildId: 6902e906a3e9bde780717b2b
+5:27:06 AM:   deployId: 6902e906a3e9bde780717b2d
+5:27:06 AM: ​
+5:27:06 AM: ❯ Current directory
+5:27:06 AM:   /opt/build/repo
+5:27:06 AM: ​
+5:27:06 AM: ❯ Config file
+5:27:06 AM:   /opt/build/repo/netlify.toml
+5:27:06 AM: ​
+5:27:06 AM: ❯ Context
+5:27:06 AM:   ****
+5:27:06 AM: ​
+5:27:06 AM: build.command from netlify.toml                               
+5:27:06 AM: ────────────────────────────────────────────────────────────────
+5:27:06 AM: ​
+5:27:06 AM: $ npm run build:client
+5:27:06 AM: > rest-express@1.0.0 build:client
+5:27:06 AM: > vite build
+5:27:06 AM: vite v5.4.20 building for ****...
+5:27:06 AM: transforming...
+5:27:06 AM: Browserslist: browsers data (caniuse-lite) is 12 months old. Please run:
+5:27:06 AM:   npx update-browserslist-db@latest
+5:27:06 AM:   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+5:27:09 AM: A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 1746 modules transformed.
+5:27:09 AM: rendering chunks...
+5:27:09 AM: computing gzip size...
+5:27:09 AM: dist/index.html                   0.99 kB │ gzip:   0.54 kB
+5:27:09 AM: dist/assets/index-vqd0YWG4.css   79.89 kB │ gzip:  12.80 kB
+5:27:09 AM: dist/assets/index-B_8cUHhk.js   463.65 kB │ gzip: 137.40 kB
+5:27:09 AM: ✓ built in 3.08s
+5:27:09 AM: ​
+5:27:09 AM: (build.command completed in 3.5s)
+5:27:09 AM: ​
+5:27:09 AM: Functions bundling                                            
+5:27:09 AM: ────────────────────────────────────────────────────────────────
+5:27:09 AM: ​
+5:27:09 AM: Packaging Functions from netlify/functions directory:
+5:27:09 AM:  - api.js
+5:27:09 AM: ​
+5:27:13 AM: ​
+5:27:13 AM: (Functions bundling completed in 3.9s)
+5:27:13 AM: ​
+5:27:13 AM: Scanning for secrets in code and build output.                
+5:27:13 AM: ────────────────────────────────────────────────────────────────
+5:27:13 AM: ​
+5:27:13 AM: ​
+5:27:13 AM: ❯ Scanning complete. 116 file(s) scanned. Secrets scanning found 5 instance(s) of secrets in build output or repo code.
+5:27:13 AM: ​
+5:27:13 AM: Secret env var "NODE_ENV"'s value detected:
+  found value at line 18 in .gitignore
+5:27:13 AM:   found value at line 7 in DEPLOYMENT_CACHING.md
+5:27:13 AM:   found value at line 33 in DEPLOYMENT_CACHING.md
+5:27:13 AM:   found value at line 101 in DEPLOYMENT_CACHING.md
+5:27:13 AM:   found value at line 116 in DEPLOYMENT_CACHING.md
+5:27:13 AM:   found value at line 121 in DEPLOYMENT_CACHING.md
+5:27:13 AM:   found value at line 170 in DEPLOYMENT_CACHING.md
+5:27:13 AM:   found value at line 37 in DEPLOYMENT_GUIDE.md
+5:27:13 AM:   found value at line 99 in DEPLOYMENT_GUIDE.md
+5:27:13 AM:   found value at line 184 in DEPLOYMENT_GUIDE.md
+5:27:13 AM:   found value at line 226 in DEPLOYMENT_GUIDE.md
+5:27:13 AM:   found value at line 36 in DEPLOYMENT_RAILWAY.md
+5:27:13 AM:   found value at line 104 in DEPLOYMENT_RAILWAY.md
+5:27:13 AM:   found value at line 131 in FOLDER_IMPORT_GUIDE.md
+5:27:13 AM:   found value at line 44 in NETLIFY_DEPLOYMENT.md
+5:27:13 AM:   found value at line 102 in NETLIFY_DEPLOYMENT.md
+5:27:13 AM:   found value at line 168 in NETLIFY_DEPLOYMENT.md
+5:27:13 AM:   found value at line 22 in PRODUCTION_SETUP.md
+5:27:13 AM:   found value at line 78 in PRODUCTION_SETUP.md
+5:27:13 AM:   found value at line 79 in README.md
+5:27:13 AM:   found value at line 117 in README.md
+5:27:13 AM:   found value at line 150 in README.md
+5:27:13 AM:   found value at line 158 in README.md
+5:27:13 AM:   found value at line 262 in README.md
+5:27:13 AM:   found value at line 304 in README.md
+5:27:13 AM:   found value at line 131 in WEBHOOK_SECURITY.md
+5:27:13 AM:   found value at line 136 in WEBHOOK_SECURITY.md
+5:27:13 AM:   found value at line 3 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM:   found value at line 9 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM:   found value at line 11 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM:   found value at line 19 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM:   found value at line 27 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM:   found value at line 42 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM:   found value at line 2 in deploy-setup.bat
+5:27:13 AM:   found value at line 22 in deploy-setup.bat
+5:27:13 AM:   found value at line 51 in deploy-setup.bat
+5:27:13 AM:   found value at line 52 in deploy-setup.bat
+5:27:13 AM:   found value at line 4 in deploy-setup.sh
+5:27:13 AM:   found value at line 6 in deploy-setup.sh
+5:27:13 AM:   found value at line 26 in deploy-setup.sh
+5:27:13 AM:   found value at line 55 in deploy-setup.sh
+5:27:13 AM:   found value at line 56 in deploy-setup.sh
+5:27:13 AM:   found value at line 11 in package.json
+5:27:13 AM:   found value at line 7 in server/google-drive-****.ts
+5:27:13 AM:   found value at line 56 in server/google-drive-****.ts
+5:27:13 AM:   found value at line 98 in server/google-drive.ts
+5:27:13 AM:   found value at line 13 in vite.config.ts
+5:27:13 AM: Secret env var "PORT"'s value detected:
+  found value at line 14 in .replit
+5:27:13 AM:   found value at line 22 in .replit
+5:27:13 AM:   found value at line 43 in .replit
+5:27:13 AM:   found value at line 38 in DEPLOYMENT_GUIDE.md
+5:27:13 AM:   found value at line 100 in DEPLOYMENT_GUIDE.md
+5:27:13 AM:   found value at line 37 in DEPLOYMENT_RAILWAY.md
+5:27:13 AM:   found value at line 48 in FOLDER_IMPORT_GUIDE.md
+5:27:13 AM:   found value at line 69 in FOLDER_IMPORT_GUIDE.md
+5:27:13 AM:   found value at line 45 in NETLIFY_DEPLOYMENT.md
+5:27:13 AM:   found value at line 104 in NETLIFY_DEPLOYMENT.md
+5:27:13 AM:   found value at line 69 in NETLIFY_ENV_SETUP.md
+5:27:13 AM:   found value at line 23 in PRODUCTION_SETUP.md
+5:27:13 AM:   found value at line 79 in PRODUCTION_SETUP.md
+5:27:13 AM:   found value at line 80 in README.md
+5:27:13 AM:   found value at line 118 in README.md
+5:27:13 AM:   found value at line 63 in SETUP.md
+5:27:13 AM:   found value at line 72 in SETUP.md
+5:27:13 AM:   found value at line 16 in client/src/components/admin/history-section.tsx
+5:27:13 AM:   found value at line 23 in deploy-setup.bat
+5:27:13 AM:   found value at line 27 in deploy-setup.sh
+5:27:13 AM:   found value at line 19 in netlify.toml
+5:27:13 AM:   found value at line 61 in server/index.ts
+5:27:13 AM:   found value at line 64 in server/index.ts
+5:27:13 AM: Secret env var "DATABASE_URL"'s value detected:
+  found value at line 23 in DEPLOYMENT_RAILWAY.md
+5:27:13 AM: Secret env var "VITE_GOOGLE_CLIENT_ID"'s value detected:
+  found value at line 318 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM: Secret env var "VITE_GOOGLE_API_KEY"'s value detected:
+  found value at line 318 in client/dist/assets/index-B_8cUHhk.js
+5:27:13 AM: ​
+5:27:13 AM: To prevent exposing secrets, the build will fail until these secret values are not found in build output or repo files.
+5:27:13 AM: ​
+5:27:13 AM: If these are expected, use SECRETS_SCAN_OMIT_PATHS, SECRETS_SCAN_OMIT_KEYS, or SECRETS_SCAN_ENABLED to prevent detecting.
+5:27:13 AM: ​
+5:27:13 AM: For more information on secrets scanning, see the Netlify Docs: https://ntl.fyi/configure-secrets-scanning
+5:27:13 AM: ​
+5:27:13 AM: Secrets scanning detected secrets in files during build.      
+5:27:13 AM: ────────────────────────────────────────────────────────────────
+5:27:13 AM: ​
+5:27:13 AM:   Error message
+5:27:13 AM:   Secrets scanning found secrets in build.
+5:27:13 AM: ​
+5:27:13 AM:   Resolved config
+5:27:13 AM:   build:
+5:27:13 AM:     base: /opt/build/repo
+5:27:13 AM:     command: npm run build:client
+5:27:13 AM:     commandOrigin: config
+5:27:13 AM:     environment:
+5:27:13 AM:       - DATABASE_URL
+5:27:13 AM:       - GOOGLE_API_KEY
+5:27:13 AM:       - GOOGLE_DRIVE_ACCESS_TOKEN
+5:27:13 AM:       - GOOGLE_DRIVE_CLIENT_ID
+5:27:13 AM:       - GOOGLE_DRIVE_CLIENT_SECRET
+5:27:13 AM:       - GOOGLE_DRIVE_REFRESH_TOKEN
+5:27:13 AM:       - NODE_ENV
+5:27:13 AM:       - PAYSTACK_PUBLIC_KEY
+5:27:13 AM:       - PAYSTACK_SECRET_KEY
+5:27:13 AM:       - PORT
+5:27:13 AM:       - VITE_GOOGLE_API_KEY
+5:27:13 AM:       - VITE_GOOGLE_CLIENT_ID
+5:27:13 AM:       - VITE_GOOGLE_DRIVE_CLIENT_ID
+5:27:13 AM:       - NODE_VERSION
+5:27:13 AM:       - NPM_FLAGS
+5:27:13 AM:     publish: /opt/build/repo/client/dist
+5:27:13 AM:     publishOrigin: config
+5:27:13 AM:   functionsDirectory: /opt/build/repo/netlify/functions
+5:27:13 AM:   headers:
+5:27:14 AM: Failed during stage 'building site': Build script returned non-zero exit code: 2 (https://ntl.fyi/exit-code-2)
+5:27:14 AM:     - for: /*
+      values:
+        Referrer-Policy: strict-origin-when-cross-origin
+        X-Content-Type-Options: nosniff
+        X-Frame-Options: DENY
+        X-XSS-Protection: 1; mode=block
+    - for: /assets/*
+      values:
+        Cache-Control: public, max-age=31536000, immutable
+    - for: /api/*
+      values:
+        Access-Control-Allow-Headers: Content-Type, Authorization
+        Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+        Access-Control-Allow-Origin: "*"
+        Cache-Control: public, max-age=300
+  headersOrigin: config
+  redirects:
+    - from: /api/*
+      status: 200
+      to: /.netlify/functions/api/:splat
+    - from: /*
+      status: 200
+      to: /index.html
+  redirectsOrigin: config
+5:27:14 AM: Build failed due to a user error: Build script returned non-zero exit code: 2
+5:27:14 AM: Failing build: Failed to build site
+5:27:14 AM: Finished processing build request in 25.518s
