@@ -1066,6 +1066,9 @@ app.use((req, res) => {
 const serverless = require('serverless-http');
 const baseHandler = serverless(app);
 
+// Temporary storage for parsed file data (keyed by request ID)
+const parsedFileStore = new Map();
+
 // Wrap the handler to parse multipart form data for file uploads
 module.exports.handler = async (event, context) => {
   // Check if this is a file upload request
@@ -1113,9 +1116,10 @@ module.exports.handler = async (event, context) => {
         };
       }
       
-      // Attach parsed data to event for Express to access via req.apiGateway.event
+      // Store parsed data in Map using request ID
+      const requestId = context?.requestId || context?.awsRequestId || `req-${Date.now()}-${Math.random()}`;
       const file = files[0];
-      event._parsedFile = {
+      const parsedFile = {
         fieldname: file.fieldname,
         originalname: file.filename,
         filename: file.filename,
@@ -1123,8 +1127,15 @@ module.exports.handler = async (event, context) => {
         buffer: file.buffer,
         size: file.buffer.length
       };
-      console.log('[Upload] File attached:', file.filename, file.mimetype, file.buffer.length, 'bytes');
       
+      parsedFileStore.set(requestId, { file: parsedFile, fields });
+      console.log('[Upload] File stored:', file.filename, file.mimetype, file.buffer.length, 'bytes', 'Request ID:', requestId);
+      
+      // Attach request ID to event headers so middleware can retrieve it
+      event.headers['x-request-id'] = requestId;
+      
+      // Also attach to event for direct access
+      event._parsedFile = parsedFile;
       event._parsedFields = fields;
       
       // Convert to JSON body for Express to parse
@@ -1135,6 +1146,10 @@ module.exports.handler = async (event, context) => {
       
       // Call the base serverless handler with modified event
       const response = await baseHandler(event, context);
+      
+      // Clean up after request completes
+      setTimeout(() => parsedFileStore.delete(requestId), 60000); // Clean up after 1 minute
+      
       return response;
     } catch (error) {
       console.error('[Upload] Error parsing multipart form:', error);
