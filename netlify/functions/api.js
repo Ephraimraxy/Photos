@@ -438,16 +438,26 @@ app.get('/content/:id/preview', async (req, res) => {
 // Upload file to Supabase Storage
 app.post('/content/upload', async (req, res) => {
   try {
+    console.log('[Upload] Request received');
+    console.log('[Upload] Request body type:', typeof req.body);
+    console.log('[Upload] Request body keys:', Object.keys(req.body || {}));
+    console.log('[Upload] Event data:', req.apiGateway?.event ? 'present' : 'missing');
+    
     // Get file from parsed multipart data (handled by wrapper)
-    const file = req.apiGateway?.event?._parsedFile;
+    const file = req.apiGateway?.event?._parsedFile || req.file;
     const fields = req.apiGateway?.event?._parsedFields || req.body;
     
+    console.log('[Upload] File:', file ? 'present' : 'missing');
+    console.log('[Upload] Fields:', fields);
+    
     if (!file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      console.error('[Upload] No file found in request');
+      return res.status(400).json({ error: 'No file uploaded. Please select a file.' });
     }
 
-    const { title } = fields;
+    const title = typeof fields === 'object' ? fields.title : req.body?.title;
     if (!title) {
+      console.error('[Upload] No title provided');
       return res.status(400).json({ error: 'Title is required' });
     }
 
@@ -460,15 +470,19 @@ app.post('/content/upload', async (req, res) => {
     }
 
     const type = isImage ? 'image' : 'video';
+    console.log('[Upload] File type:', type, 'MIME:', mimeType, 'Size:', file.size || file.buffer?.length);
 
     // Upload to Supabase Storage
+    console.log('[Upload] Uploading to Supabase...');
     const { path: supabasePath, url: supabaseUrl } = await uploadFileToSupabase(
       file.buffer,
       file.originalname || file.filename,
       mimeType
     );
+    console.log('[Upload] Uploaded to Supabase:', supabasePath);
 
     // Create content record
+    console.log('[Upload] Creating database record...');
     const content = await storage.createContent({
       id: randomUUID(),
       title,
@@ -481,11 +495,16 @@ app.post('/content/upload', async (req, res) => {
       googleDriveId: null,
       googleDriveUrl: null,
     });
+    console.log('[Upload] Content created:', content.id);
 
     res.json(content);
   } catch (error) {
-    console.error('File upload error:', error);
-    res.status(500).json({ error: error?.message || 'Failed to upload file' });
+    console.error('[Upload] File upload error:', error);
+    console.error('[Upload] Error stack:', error.stack);
+    res.status(500).json({ 
+      error: error?.message || 'Failed to upload file',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -1042,9 +1061,14 @@ const baseHandler = serverless(app);
 module.exports.handler = async (event, context) => {
   // Check if this is a file upload request
   const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
+  const path = event.path || event.rawPath || '';
+  
+  console.log('[Handler] Request path:', path);
+  console.log('[Handler] Content-Type:', contentType);
+  console.log('[Handler] Method:', event.httpMethod || event.requestContext?.http?.method);
   
   if (contentType.includes('multipart/form-data') && 
-      (event.path.includes('/content/upload') || event.path.includes('/api/content/upload'))) {
+      (path.includes('/content/upload') || path.includes('/api/content/upload'))) {
     try {
       console.log('[Upload] Parsing multipart form data...');
       
@@ -1066,6 +1090,8 @@ module.exports.handler = async (event, context) => {
           size: file.buffer.length
         };
         console.log('[Upload] File attached:', file.filename, file.mimetype, file.buffer.length, 'bytes');
+      } else {
+        console.warn('[Upload] No files found in parsed form data');
       }
       
       event._parsedFields = fields;
@@ -1081,8 +1107,10 @@ module.exports.handler = async (event, context) => {
       return response;
     } catch (error) {
       console.error('[Upload] Error parsing multipart form:', error);
+      console.error('[Upload] Error stack:', error.stack);
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Failed to parse file upload', details: error.message })
       };
     }
