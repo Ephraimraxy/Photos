@@ -11,47 +11,17 @@ const { z } = require('zod');
 // Load environment variables
 require('dotenv').config();
 
-// Initialize Supabase client (lazy load to avoid bundling issues)
-let supabase = null;
-let createClient = null;
-
-function getSupabaseClient() {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+// Supabase Storage functions using REST API (to avoid bundling large SDK)
+async function uploadFileToSupabase(fileBuffer, fileName, mimeType) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const BUCKET_NAME = 'content';
+  
+  if (!supabaseUrl || !supabaseKey) {
     throw new Error(
       "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables"
     );
   }
-  
-  // Lazy load Supabase to avoid bundling issues
-  if (!createClient) {
-    try {
-      const supabaseModule = require('@supabase/supabase-js');
-      createClient = supabaseModule.createClient;
-    } catch (error) {
-      throw new Error('Failed to load @supabase/supabase-js. Make sure it is installed.');
-    }
-  }
-  
-  if (!supabase) {
-    supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    );
-  }
-  
-  return supabase;
-}
-
-// Supabase Storage functions
-async function uploadFileToSupabase(fileBuffer, fileName, mimeType) {
-  const client = getSupabaseClient();
-  const BUCKET_NAME = 'content';
   
   // Generate unique file name
   const timestamp = Date.now();
@@ -60,26 +30,28 @@ async function uploadFileToSupabase(fileBuffer, fileName, mimeType) {
   const uniqueFileName = `${timestamp}-${randomString}.${fileExtension}`;
   const filePath = `${uniqueFileName}`;
 
-  // Upload file to Supabase Storage
-  const { data, error } = await client.storage
-    .from(BUCKET_NAME)
-    .upload(filePath, fileBuffer, {
-      contentType: mimeType,
-      upsert: false,
-    });
+  // Upload file to Supabase Storage using REST API
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${filePath}`;
+  const uploadResponse = await axios.put(uploadUrl, fileBuffer, {
+    headers: {
+      'Authorization': `Bearer ${supabaseKey}`,
+      'Content-Type': mimeType,
+      'x-upsert': 'false'
+    },
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity
+  });
 
-  if (error) {
-    throw new Error(`Failed to upload file to Supabase: ${error.message}`);
+  if (uploadResponse.status !== 200) {
+    throw new Error(`Failed to upload file to Supabase: ${uploadResponse.statusText}`);
   }
 
   // Get public URL
-  const { data: urlData } = client.storage
-    .from(BUCKET_NAME)
-    .getPublicUrl(filePath);
+  const publicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${filePath}`;
 
   return {
     path: filePath,
-    url: urlData.publicUrl,
+    url: publicUrl,
   };
 }
 
