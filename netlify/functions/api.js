@@ -350,7 +350,17 @@ const storage = {
 
   async getAllPurchases() {
     const database = await initDB();
-    return await database.select().from(purchases).orderBy(desc(purchases.createdAt));
+    // Use raw SQL to ensure all columns are returned correctly
+    const result = await sqlConnection`
+      SELECT 
+        id, tracking_code as "trackingCode", user_name as "userName",
+        unique_id as "uniqueId", content_ids as "contentIds",
+        total_amount as "totalAmount", status, paystack_reference as "paystackReference",
+        coupon_id as "couponId", created_at as "createdAt"
+      FROM purchases 
+      ORDER BY created_at DESC
+    `;
+    return result;
   },
 
   async getAllCoupons() {

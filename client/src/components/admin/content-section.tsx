@@ -99,15 +99,35 @@ export default function ContentSection() {
       });
 
       if (!response.ok) {
-        // Try to parse error as JSON, fallback to text
+        // Clone response to read it multiple times if needed
+        const responseClone = response.clone();
         let errorMessage = 'Upload failed';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.details || errorMessage;
-        } catch {
-          const errorText = await response.text();
-          errorMessage = errorText || `Server returned ${response.status}`;
+        
+        // Try to parse as JSON first
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.details || errorMessage;
+          } catch {
+            // If JSON parse fails, try text
+            try {
+              const errorText = await responseClone.text();
+              errorMessage = errorText || `Server returned ${response.status}`;
+            } catch {
+              errorMessage = `Server returned ${response.status}`;
+            }
+          }
+        } else {
+          // Not JSON, try text
+          try {
+            const errorText = await response.text();
+            errorMessage = errorText || `Server returned ${response.status}`;
+          } catch {
+            errorMessage = `Server returned ${response.status}`;
+          }
         }
+        
         throw new Error(errorMessage);
       }
 
