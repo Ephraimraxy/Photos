@@ -1090,12 +1090,11 @@ module.exports.handler = async (event, context) => {
   console.log('[Handler] Is upload request:', isUploadRequest);
   
   if (isUploadRequest) {
+    // Handle upload directly - don't go through Express
     try {
-      console.log('[Upload] Detected upload request, parsing multipart form data...');
+      console.log('[Upload] Handling upload directly...');
       
-      // Ensure body is available and properly formatted
       if (!event.body) {
-        console.error('[Upload] No body in event');
         return {
           statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -1106,11 +1105,7 @@ module.exports.handler = async (event, context) => {
       // Parse multipart form data
       const { fields, files } = await parseMultipartForm(event);
       
-      console.log('[Upload] Parsed fields:', Object.keys(fields));
-      console.log('[Upload] Parsed files:', files.length);
-      
       if (files.length === 0) {
-        console.error('[Upload] No files found in form data');
         return {
           statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -1118,51 +1113,60 @@ module.exports.handler = async (event, context) => {
         };
       }
       
-      // Store parsed data in Map using request ID
-      const requestId = context?.requestId || context?.awsRequestId || `req-${Date.now()}-${Math.random()}`;
       const file = files[0];
-      const parsedFile = {
-        fieldname: file.fieldname,
-        originalname: file.filename,
-        filename: file.filename,
-        mimetype: file.mimetype,
-        buffer: file.buffer,
-        size: file.buffer.length
-      };
+      const title = fields.title || file.filename || 'Untitled';
       
-      parsedFileStore.set(requestId, { file: parsedFile, fields });
-      console.log('[Upload] File stored:', file.filename, file.mimetype, file.buffer.length, 'bytes', 'Request ID:', requestId);
+      const mimeType = file.mimetype;
+      const isImage = mimeType.startsWith('image/');
+      const isVideo = mimeType.startsWith('video/');
       
-      // Attach request ID to event headers so middleware can retrieve it
-      event.headers['x-request-id'] = requestId;
+      if (!isImage && !isVideo) {
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Only image and video files are allowed' })
+        };
+      }
       
-      // Also attach to event for direct access
-      event._parsedFile = parsedFile;
-      event._parsedFields = fields;
+      const type = isImage ? 'image' : 'video';
+      console.log('[Upload] Processing:', file.filename, type, file.buffer.length, 'bytes');
       
-      // Convert to JSON body for Express to parse
-      event.body = JSON.stringify(fields);
-      event.headers['content-type'] = 'application/json';
-      delete event.headers['Content-Type'];
-      event.isBase64Encoded = false;
+      // Upload to Supabase
+      const { path: supabasePath, url: supabaseUrl } = await uploadFileToSupabase(
+        file.buffer,
+        file.filename,
+        mimeType
+      );
+      console.log('[Upload] Uploaded to Supabase:', supabasePath);
       
-      // Call the base serverless handler with modified event
-      const response = await baseHandler(event, context);
+      // Create content record
+      const content = await storage.createContent({
+        id: randomUUID(),
+        title,
+        type,
+        supabasePath,
+        supabaseUrl,
+        mimeType: mimeType,
+        fileSize: file.buffer.length,
+        duration: null,
+        googleDriveId: null,
+        googleDriveUrl: null,
+      });
+      console.log('[Upload] Content created:', content.id);
       
-      // Clean up after request completes
-      setTimeout(() => parsedFileStore.delete(requestId), 60000); // Clean up after 1 minute
-      
-      return response;
-    } catch (error) {
-      console.error('[Upload] Error parsing multipart form:', error);
-      console.error('[Upload] Error stack:', error.stack);
       return {
-        statusCode: 400,
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(content)
+      };
+    } catch (error) {
+      console.error('[Upload] Error:', error);
+      return {
+        statusCode: 500,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          error: 'Failed to parse file upload', 
-          details: error.message,
-          stack: error.stack
+          error: 'Failed to upload file', 
+          details: error.message
         })
       };
     }
