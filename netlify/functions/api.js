@@ -376,7 +376,11 @@ const storage = {
 
   async deleteContent(id) {
     const database = await initDB();
-    await database.delete(content).where(eq(content.id, id));
+    // Use raw SQL to delete
+    await sqlConnection`
+      DELETE FROM content 
+      WHERE id = ${id}
+    `;
   }
 };
 
