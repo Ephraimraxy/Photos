@@ -26,10 +26,10 @@
 [functions]
   # Directory for Netlify Functions
   directory = "netlify/functions"
-  # Increase timeout and memory for large functions
-  [functions.api]
-    timeout = 30
-    memory = 1024
+  # Function-specific configuration
+  [functions."api.js"]
+    timeout = 10
+    memory = 512
 
 # Redirects for API to Netlify Function (preserve path with :splat)
 [[redirects]]
