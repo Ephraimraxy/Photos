@@ -8,9 +8,70 @@ const { drizzle } = require('drizzle-orm/postgres-js');
 const postgres = require('postgres');
 const { eq, and, desc, sql } = require('drizzle-orm');
 const { z } = require('zod');
+const { createClient } = require('@supabase/supabase-js');
 
 // Load environment variables
 require('dotenv').config();
+
+// Initialize Supabase client
+let supabase = null;
+function getSupabaseClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables"
+    );
+  }
+  
+  if (!supabase) {
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+  }
+  
+  return supabase;
+}
+
+// Supabase Storage functions
+async function uploadFileToSupabase(fileBuffer, fileName, mimeType) {
+  const client = getSupabaseClient();
+  const BUCKET_NAME = 'content';
+  
+  // Generate unique file name
+  const timestamp = Date.now();
+  const randomString = Math.random().toString(36).substring(2, 15);
+  const fileExtension = fileName.split('.').pop() || '';
+  const uniqueFileName = `${timestamp}-${randomString}.${fileExtension}`;
+  const filePath = `${uniqueFileName}`;
+
+  // Upload file to Supabase Storage
+  const { data, error } = await client.storage
+    .from(BUCKET_NAME)
+    .upload(filePath, fileBuffer, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (error) {
+    throw new Error(`Failed to upload file to Supabase: ${error.message}`);
+  }
+
+  // Get public URL
+  const { data: urlData } = client.storage
+    .from(BUCKET_NAME)
+    .getPublicUrl(filePath);
+
+  return {
+    path: filePath,
+    url: urlData.publicUrl,
+  };
+}
 
 // Helper function to parse multipart form data in Netlify Functions
 function parseMultipartForm(event) {
@@ -134,9 +195,13 @@ const content = {
   id: 'uuid',
   title: 'text',
   type: 'text',
-  thumbnailUrl: 'text',
-  downloadUrl: 'text',
   googleDriveId: 'text',
+  googleDriveUrl: 'text',
+  supabasePath: 'text',
+  supabaseUrl: 'text',
+  mimeType: 'text',
+  fileSize: 'integer',
+  duration: 'integer',
   createdAt: 'timestamp'
 };
 
@@ -326,6 +391,60 @@ app.get('/content/:id/preview', async (req, res) => {
   } catch (error) {
     console.error('Content preview error:', error);
     res.status(500).json({ error: 'Failed to fetch content preview' });
+  }
+});
+
+// Upload file to Supabase Storage
+app.post('/content/upload', async (req, res) => {
+  try {
+    // Get file from parsed multipart data (handled by wrapper)
+    const file = req.apiGateway?.event?._parsedFile;
+    const fields = req.apiGateway?.event?._parsedFields || req.body;
+    
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { title } = fields;
+    if (!title) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    const mimeType = file.mimetype;
+    const isImage = mimeType.startsWith('image/');
+    const isVideo = mimeType.startsWith('video/');
+
+    if (!isImage && !isVideo) {
+      return res.status(400).json({ error: 'Only image and video files are allowed' });
+    }
+
+    const type = isImage ? 'image' : 'video';
+
+    // Upload to Supabase Storage
+    const { path: supabasePath, url: supabaseUrl } = await uploadFileToSupabase(
+      file.buffer,
+      file.originalname || file.filename,
+      mimeType
+    );
+
+    // Create content record
+    const content = await storage.createContent({
+      id: randomUUID(),
+      title,
+      type,
+      supabasePath,
+      supabaseUrl,
+      mimeType: mimeType,
+      fileSize: file.size || file.buffer.length,
+      duration: null,
+      googleDriveId: null,
+      googleDriveUrl: null,
+    });
+
+    res.json(content);
+  } catch (error) {
+    console.error('File upload error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to upload file' });
   }
 });
 
