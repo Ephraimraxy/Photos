@@ -1,22 +1,32 @@
 import { createClient } from '@supabase/supabase-js';
 
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error(
-    "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables"
-  );
-}
-
 // Create Supabase client with service role key for admin operations
-export const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
+// Only create if credentials are available
+let supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables. " +
+      "Please add them in Netlify dashboard → Site settings → Environment variables"
+    );
   }
-);
+
+  if (!supabase) {
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+  }
+
+  return supabase;
+}
 
 const BUCKET_NAME = 'content'; // Storage bucket name
 
@@ -32,6 +42,8 @@ export async function uploadFileToSupabase(
   fileName: string,
   mimeType: string
 ): Promise<{ path: string; url: string }> {
+  const client = getSupabaseClient();
+  
   // Generate unique file name to avoid conflicts
   const timestamp = Date.now();
   const randomString = Math.random().toString(36).substring(2, 15);
@@ -40,7 +52,7 @@ export async function uploadFileToSupabase(
   const filePath = `${uniqueFileName}`;
 
   // Upload file to Supabase Storage
-  const { data, error } = await supabase.storage
+  const { data, error } = await client.storage
     .from(BUCKET_NAME)
     .upload(filePath, fileBuffer, {
       contentType: mimeType,
@@ -52,7 +64,7 @@ export async function uploadFileToSupabase(
   }
 
   // Get public URL
-  const { data: urlData } = supabase.storage
+  const { data: urlData } = client.storage
     .from(BUCKET_NAME)
     .getPublicUrl(filePath);
 
@@ -67,13 +79,19 @@ export async function uploadFileToSupabase(
  * @param filePath - The path of the file to delete
  */
 export async function deleteFileFromSupabase(filePath: string): Promise<void> {
-  const { error } = await supabase.storage
-    .from(BUCKET_NAME)
-    .remove([filePath]);
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.storage
+      .from(BUCKET_NAME)
+      .remove([filePath]);
 
-  if (error) {
-    console.error(`Failed to delete file from Supabase: ${error.message}`);
-    // Don't throw - allow deletion to continue even if file deletion fails
+    if (error) {
+      console.error(`Failed to delete file from Supabase: ${error.message}`);
+      // Don't throw - allow deletion to continue even if file deletion fails
+    }
+  } catch (err) {
+    console.error(`Supabase not configured, skipping file deletion: ${err}`);
+    // Don't throw - allow deletion to continue
   }
 }
 
@@ -83,7 +101,8 @@ export async function deleteFileFromSupabase(filePath: string): Promise<void> {
  * @returns The file buffer
  */
 export async function getFileFromSupabase(filePath: string): Promise<Buffer> {
-  const { data, error } = await supabase.storage
+  const client = getSupabaseClient();
+  const { data, error } = await client.storage
     .from(BUCKET_NAME)
     .download(filePath);
 
@@ -102,7 +121,8 @@ export async function getFileFromSupabase(filePath: string): Promise<Buffer> {
  * @returns The public URL
  */
 export function getPublicUrl(filePath: string): string {
-  const { data } = supabase.storage
+  const client = getSupabaseClient();
+  const { data } = client.storage
     .from(BUCKET_NAME)
     .getPublicUrl(filePath);
   
