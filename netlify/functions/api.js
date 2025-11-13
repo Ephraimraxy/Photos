@@ -103,9 +103,18 @@ function parseMultipartForm(event) {
       });
 
       // CRITICAL: Event body must be base64 decoded for Netlify Functions
-      const body = event.isBase64Encoded 
-        ? Buffer.from(event.body, 'base64')
-        : Buffer.from(event.body);
+      let body;
+      if (event.isBase64Encoded) {
+        body = Buffer.from(event.body, 'base64');
+      } else if (typeof event.body === 'string') {
+        body = Buffer.from(event.body, 'utf8');
+      } else if (Buffer.isBuffer(event.body)) {
+        body = event.body;
+      } else {
+        throw new Error('Invalid body format in event');
+      }
+      
+      console.log('[Parse] Body length:', body.length, 'bytes');
       bb.end(body);
     } catch (error) {
       reject(error);
@@ -1062,15 +1071,32 @@ module.exports.handler = async (event, context) => {
   // Check if this is a file upload request
   const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
   const path = event.path || event.rawPath || '';
+  const method = event.httpMethod || event.requestContext?.http?.method || 'GET';
   
   console.log('[Handler] Request path:', path);
   console.log('[Handler] Content-Type:', contentType);
-  console.log('[Handler] Method:', event.httpMethod || event.requestContext?.http?.method);
+  console.log('[Handler] Method:', method);
+  console.log('[Handler] Body present:', !!event.body);
+  console.log('[Handler] Body isBase64Encoded:', event.isBase64Encoded);
   
-  if (contentType.includes('multipart/form-data') && 
-      (path.includes('/content/upload') || path.includes('/api/content/upload'))) {
+  // Check if this is an upload request
+  const isUploadRequest = method === 'POST' && 
+    (path.includes('/content/upload') || path.includes('/api/content/upload')) &&
+    contentType.includes('multipart/form-data');
+  
+  if (isUploadRequest) {
     try {
-      console.log('[Upload] Parsing multipart form data...');
+      console.log('[Upload] Detected upload request, parsing multipart form data...');
+      
+      // Ensure body is available and properly formatted
+      if (!event.body) {
+        console.error('[Upload] No body in event');
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'No request body received' })
+        };
+      }
       
       // Parse multipart form data
       const { fields, files } = await parseMultipartForm(event);
@@ -1078,21 +1104,26 @@ module.exports.handler = async (event, context) => {
       console.log('[Upload] Parsed fields:', Object.keys(fields));
       console.log('[Upload] Parsed files:', files.length);
       
-      // Attach parsed data to event for Express to access via req.apiGateway.event
-      if (files.length > 0) {
-        const file = files[0];
-        event._parsedFile = {
-          fieldname: file.fieldname,
-          originalname: file.filename,
-          filename: file.filename,
-          mimetype: file.mimetype,
-          buffer: file.buffer,
-          size: file.buffer.length
+      if (files.length === 0) {
+        console.error('[Upload] No files found in form data');
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'No file found in upload request' })
         };
-        console.log('[Upload] File attached:', file.filename, file.mimetype, file.buffer.length, 'bytes');
-      } else {
-        console.warn('[Upload] No files found in parsed form data');
       }
+      
+      // Attach parsed data to event for Express to access via req.apiGateway.event
+      const file = files[0];
+      event._parsedFile = {
+        fieldname: file.fieldname,
+        originalname: file.filename,
+        filename: file.filename,
+        mimetype: file.mimetype,
+        buffer: file.buffer,
+        size: file.buffer.length
+      };
+      console.log('[Upload] File attached:', file.filename, file.mimetype, file.buffer.length, 'bytes');
       
       event._parsedFields = fields;
       
@@ -1111,7 +1142,11 @@ module.exports.handler = async (event, context) => {
       return {
         statusCode: 400,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Failed to parse file upload', details: error.message })
+        body: JSON.stringify({ 
+          error: 'Failed to parse file upload', 
+          details: error.message,
+          stack: error.stack
+        })
       };
     }
   }
