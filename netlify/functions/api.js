@@ -462,7 +462,34 @@ app.get('/content/:id/preview', async (req, res) => {
 
     // Use Supabase URL if available, otherwise use Google Drive URL
     if (content.supabaseUrl) {
-      res.redirect(content.supabaseUrl);
+      // Try to fetch the file from Supabase and serve it
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const BUCKET_NAME = 'content';
+        
+        if (supabaseUrl && supabaseKey && content.supabasePath) {
+          // Fetch file from Supabase Storage
+          const fileUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
+          const fileResponse = await axios.get(fileUrl, {
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`
+            },
+            responseType: 'arraybuffer'
+          });
+          
+          // Set appropriate headers and serve the file
+          res.setHeader('Content-Type', content.mimeType || 'application/octet-stream');
+          res.setHeader('Cache-Control', 'public, max-age=31536000');
+          res.send(Buffer.from(fileResponse.data));
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to fetch from Supabase, trying redirect:', error.message);
+        // Fallback to redirect
+        res.redirect(content.supabaseUrl);
+        return;
+      }
     } else if (content.googleDriveUrl) {
       res.redirect(content.googleDriveUrl);
     } else {
