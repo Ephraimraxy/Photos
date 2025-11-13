@@ -99,8 +99,16 @@ export default function ContentSection() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+        // Try to parse error as JSON, fallback to text
+        let errorMessage = 'Upload failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch {
+          const errorText = await response.text();
+          errorMessage = errorText || `Server returned ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
 
       return await response.json();
