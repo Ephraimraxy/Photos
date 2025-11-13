@@ -156,15 +156,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Middleware to attach parsed file data from Netlify Function wrapper
 app.use((req, res, next) => {
-  // serverless-http exposes the original event at req.apiGateway.event
-  const event = req.apiGateway?.event;
+  // Try multiple ways to access the parsed file data
+  const requestId = req.headers['x-request-id'];
+  const event = req.apiGateway?.event || req.context?.event;
   
-  if (event?._parsedFile) {
+  // First try: Get from parsed file store using request ID
+  if (requestId && parsedFileStore.has(requestId)) {
+    const { file, fields } = parsedFileStore.get(requestId);
+    req.file = file;
+    if (fields) {
+      req.body = { ...req.body, ...fields };
+    }
+  }
+  // Second try: Get directly from event
+  else if (event?._parsedFile) {
     req.file = event._parsedFile;
+    if (event._parsedFields) {
+      req.body = { ...req.body, ...event._parsedFields };
+    }
   }
-  if (event?._parsedFields) {
-    req.body = { ...req.body, ...event._parsedFields };
-  }
+  
   next();
 });
 
