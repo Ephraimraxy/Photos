@@ -344,46 +344,93 @@ const storage = {
   async getContentById(id) {
     const database = await initDB();
     // Use raw SQL to handle all columns including new Supabase columns
-    // COALESCE handles missing load_status column gracefully
-    const result = await sqlConnection`
-      SELECT 
-        id, title, type, 
-        google_drive_id as "googleDriveId",
-        google_drive_url as "googleDriveUrl",
-        supabase_path as "supabasePath",
-        supabase_url as "supabaseUrl",
-        mime_type as "mimeType",
-        file_size as "fileSize",
-        duration,
-        COALESCE(load_status, 'pending') as "loadStatus",
-        created_at as "createdAt"
-      FROM content 
-      WHERE id = ${id}
-      LIMIT 1
-    `;
-    return result[0] || null;
+    // Try with load_status, fallback if column doesn't exist
+    try {
+      const result = await sqlConnection`
+        SELECT 
+          id, title, type, 
+          google_drive_id as "googleDriveId",
+          google_drive_url as "googleDriveUrl",
+          supabase_path as "supabasePath",
+          supabase_url as "supabaseUrl",
+          mime_type as "mimeType",
+          file_size as "fileSize",
+          duration,
+          COALESCE(load_status, 'pending') as "loadStatus",
+          created_at as "createdAt"
+        FROM content 
+        WHERE id = ${id}
+        LIMIT 1
+      `;
+      return result[0] || null;
+    } catch (error) {
+      // If load_status column doesn't exist, query without it
+      if (error.message && error.message.includes('load_status')) {
+        const result = await sqlConnection`
+          SELECT 
+            id, title, type, 
+            google_drive_id as "googleDriveId",
+            google_drive_url as "googleDriveUrl",
+            supabase_path as "supabasePath",
+            supabase_url as "supabaseUrl",
+            mime_type as "mimeType",
+            file_size as "fileSize",
+            duration,
+            'pending' as "loadStatus",
+            created_at as "createdAt"
+          FROM content 
+          WHERE id = ${id}
+          LIMIT 1
+        `;
+        return result[0] || null;
+      }
+      throw error;
+    }
   },
 
   async getAllContent() {
     const database = await initDB();
     // Use raw SQL to handle all columns including new Supabase columns
-    // COALESCE handles missing load_status column gracefully
-    const result = await sqlConnection`
-      SELECT 
-        id, title, type, 
-        google_drive_id as "googleDriveId",
-        google_drive_url as "googleDriveUrl",
-        supabase_path as "supabasePath",
-        supabase_url as "supabaseUrl",
-        mime_type as "mimeType",
-        file_size as "fileSize",
-        duration,
-        COALESCE(load_status, 'pending') as "loadStatus",
-        created_at as "createdAt"
-      FROM content 
-      ORDER BY created_at DESC
-    `;
-    return result;
+    // Try with load_status, fallback if column doesn't exist
+    try {
+      const result = await sqlConnection`
+        SELECT 
+          id, title, type, 
+          google_drive_id as "googleDriveId",
+          google_drive_url as "googleDriveUrl",
+          supabase_path as "supabasePath",
+          supabase_url as "supabaseUrl",
+          mime_type as "mimeType",
+          file_size as "fileSize",
+          duration,
+          COALESCE(load_status, 'pending') as "loadStatus",
+          created_at as "createdAt"
+        FROM content 
+        ORDER BY created_at DESC
+      `;
+      return result;
+    } catch (error) {
+      // If load_status column doesn't exist, query without it
+      if (error.message && error.message.includes('load_status')) {
+        const result = await sqlConnection`
+          SELECT 
+            id, title, type, 
+            google_drive_id as "googleDriveId",
+            google_drive_url as "googleDriveUrl",
+            supabase_path as "supabasePath",
+            supabase_url as "supabaseUrl",
+            mime_type as "mimeType",
+            file_size as "fileSize",
+            duration,
+            'pending' as "loadStatus",
+            created_at as "createdAt"
+          FROM content 
+          ORDER BY created_at DESC
+        `;
+        return result;
+      }
+      throw error;
+    }
   },
 
   async getAllPurchases() {
