@@ -468,21 +468,57 @@ app.get('/content/:id/preview', async (req, res) => {
 // Upload file to Supabase Storage
 app.post('/content/upload', async (req, res) => {
   try {
-    console.log('[Upload] Request received');
-    console.log('[Upload] Request body type:', typeof req.body);
-    console.log('[Upload] Request body keys:', Object.keys(req.body || {}));
-    console.log('[Upload] Event data:', req.apiGateway?.event ? 'present' : 'missing');
+    console.log('[Upload Route] Request received');
+    console.log('[Upload Route] Method:', req.method);
+    console.log('[Upload Route] URL:', req.url);
+    console.log('[Upload Route] Headers:', JSON.stringify(req.headers));
+    console.log('[Upload Route] Request body type:', typeof req.body);
+    console.log('[Upload Route] Request body keys:', Object.keys(req.body || {}));
     
-    // Get file from parsed multipart data (handled by wrapper)
-    const file = req.apiGateway?.event?._parsedFile || req.file;
-    const fields = req.apiGateway?.event?._parsedFields || req.body;
+    // Try multiple ways to get the file
+    const requestId = req.headers['x-request-id'];
+    const event = req.apiGateway?.event || req.context?.event;
     
-    console.log('[Upload] File:', file ? 'present' : 'missing');
-    console.log('[Upload] Fields:', fields);
+    console.log('[Upload Route] Request ID:', requestId);
+    console.log('[Upload Route] Event present:', !!event);
+    console.log('[Upload Route] Parsed file store has ID:', requestId ? parsedFileStore.has(requestId) : false);
+    
+    let file = null;
+    let fields = req.body || {};
+    
+    // Try to get file from parsed file store
+    if (requestId && parsedFileStore.has(requestId)) {
+      const parsed = parsedFileStore.get(requestId);
+      file = parsed.file;
+      fields = { ...fields, ...parsed.fields };
+      console.log('[Upload Route] Got file from parsed file store');
+    }
+    // Try to get from event
+    else if (event?._parsedFile) {
+      file = event._parsedFile;
+      fields = { ...fields, ...event._parsedFields };
+      console.log('[Upload Route] Got file from event');
+    }
+    // Try to get from req.file (set by middleware)
+    else if (req.file) {
+      file = req.file;
+      console.log('[Upload Route] Got file from req.file');
+    }
+    
+    console.log('[Upload Route] File:', file ? `present (${file.filename}, ${file.size} bytes)` : 'missing');
+    console.log('[Upload Route] Fields:', JSON.stringify(fields));
     
     if (!file) {
-      console.error('[Upload] No file found in request');
-      return res.status(400).json({ error: 'No file uploaded. Please select a file.' });
+      console.error('[Upload Route] No file found in request - checked all sources');
+      return res.status(400).json({ 
+        error: 'No file uploaded. Please select a file.',
+        debug: {
+          requestId,
+          hasEvent: !!event,
+          hasReqFile: !!req.file,
+          hasInStore: requestId ? parsedFileStore.has(requestId) : false
+        }
+      });
     }
 
     const title = typeof fields === 'object' ? fields.title : req.body?.title;
@@ -1103,10 +1139,22 @@ module.exports.handler = async (event, context) => {
   console.log('[Handler] Body present:', !!event.body);
   console.log('[Handler] Body isBase64Encoded:', event.isBase64Encoded);
   
+  // Normalize path - remove Netlify function prefix if present
+  let normalizedPath = path;
+  if (path.startsWith('/.netlify/functions/api')) {
+    normalizedPath = path.slice('/.netlify/functions/api'.length) || '/';
+  }
+  if (normalizedPath.startsWith('/api/')) {
+    normalizedPath = normalizedPath.slice(4) || '/';
+  }
+  
   // Check if this is an upload request
   const isUploadRequest = method === 'POST' && 
-    (path.includes('/content/upload') || path.includes('/api/content/upload')) &&
-    contentType.includes('multipart/form-data');
+    (normalizedPath === '/content/upload' || normalizedPath.includes('/content/upload')) &&
+    (contentType.includes('multipart/form-data') || contentType.startsWith('multipart/'));
+  
+  console.log('[Handler] Normalized path:', normalizedPath);
+  console.log('[Handler] Is upload request:', isUploadRequest);
   
   if (isUploadRequest) {
     try {
@@ -1188,5 +1236,26 @@ module.exports.handler = async (event, context) => {
   }
   
   // For non-upload requests, use the standard handler
-  return baseHandler(event, context);
+  try {
+    const response = await baseHandler(event, context);
+    // Ensure all responses are JSON if they're errors
+    if (response && response.statusCode >= 400 && response.headers && response.headers['Content-Type'] && response.headers['Content-Type'].includes('text/html')) {
+      return {
+        ...response,
+        headers: {
+          ...response.headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ error: response.body || 'An error occurred' })
+      };
+    }
+    return response;
+  } catch (error) {
+    console.error('[Handler] Error in base handler:', error);
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Internal server error', details: error.message })
+    };
+  }
 };
