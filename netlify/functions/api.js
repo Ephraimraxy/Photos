@@ -46,8 +46,33 @@ async function uploadFileToSupabase(fileBuffer, fileName, mimeType) {
     throw new Error(`Failed to upload file to Supabase: ${uploadResponse.statusText}`);
   }
 
-  // Get public URL
-  const publicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${filePath}`;
+  // Get public URL - use signed URL for better reliability
+  // First try to get a signed URL, fallback to public URL
+  let publicUrl;
+  try {
+    // Try to create a signed URL (valid for 1 year)
+    const signUrl = `${supabaseUrl}/storage/v1/object/sign/${BUCKET_NAME}/${filePath}`;
+    const signResponse = await axios.post(signUrl, {}, {
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json'
+      },
+      params: {
+        expiresIn: '31536000' // 1 year
+      }
+    });
+    
+    if (signResponse.data?.signedURL) {
+      publicUrl = `${supabaseUrl}${signResponse.data.signedURL}`;
+    } else {
+      // Fallback to public URL
+      publicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${filePath}`;
+    }
+  } catch (error) {
+    console.log('Could not create signed URL, using public URL:', error.message);
+    // Fallback to public URL
+    publicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${filePath}`;
+  }
 
   return {
     path: filePath,
@@ -462,34 +487,9 @@ app.get('/content/:id/preview', async (req, res) => {
 
     // Use Supabase URL if available, otherwise use Google Drive URL
     if (content.supabaseUrl) {
-      // Try to fetch the file from Supabase and serve it
-      try {
-        const supabaseUrl = process.env.SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        const BUCKET_NAME = 'content';
-        
-        if (supabaseUrl && supabaseKey && content.supabasePath) {
-          // Fetch file from Supabase Storage
-          const fileUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
-          const fileResponse = await axios.get(fileUrl, {
-            headers: {
-              'Authorization': `Bearer ${supabaseKey}`
-            },
-            responseType: 'arraybuffer'
-          });
-          
-          // Set appropriate headers and serve the file
-          res.setHeader('Content-Type', content.mimeType || 'application/octet-stream');
-          res.setHeader('Cache-Control', 'public, max-age=31536000');
-          res.send(Buffer.from(fileResponse.data));
-          return;
-        }
-      } catch (error) {
-        console.error('Failed to fetch from Supabase, trying redirect:', error.message);
-        // Fallback to redirect
-        res.redirect(content.supabaseUrl);
-        return;
-      }
+      // For Supabase, redirect directly to the public URL
+      // This is more efficient than proxying through the function
+      res.redirect(content.supabaseUrl);
     } else if (content.googleDriveUrl) {
       res.redirect(content.googleDriveUrl);
     } else {
