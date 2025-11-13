@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import { apiRequest } from "@/lib/queryClient";
 export default function Browse() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [cartOpen, setCartOpen] = useState(false);
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
   const [couponDialogOpen, setCouponDialogOpen] = useState(false);
@@ -56,12 +57,27 @@ export default function Browse() {
 
   const images = content?.filter((c) => 
     c.type === "image" && 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+    c.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+    c.loadStatus !== "failed" // Hide failed images from users
   ) || [];
   const videos = content?.filter((c) => 
     c.type === "video" && 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+    c.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+    c.loadStatus !== "failed" // Hide failed videos from users
   ) || [];
+
+  const handleImageError = async (contentId: string) => {
+    try {
+      await fetch(`/api/content/${contentId}/report-failed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      // Invalidate query to refresh the list (failed items will be hidden)
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+    } catch (error) {
+      console.error('Failed to report image error:', error);
+    }
+  };
 
   const addToCart = (item: Content) => {
     // Check coupon limits if active
@@ -487,6 +503,7 @@ export default function Browse() {
                     content={item}
                     onAddToCart={addToCart}
                     isInCart={isInCart(item.id)}
+                    onImageError={handleImageError}
                   />
                 ))}
               </div>
@@ -514,6 +531,7 @@ export default function Browse() {
                     content={item}
                     onAddToCart={addToCart}
                     isInCart={isInCart(item.id)}
+                    onImageError={handleImageError}
                   />
                 ))}
               </div>

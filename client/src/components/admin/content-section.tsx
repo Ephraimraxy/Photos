@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type Content } from "@shared/schema";
-import { Trash2, Image, Video, ExternalLink, Loader2, Trash, CheckSquare, Square, Upload } from "lucide-react";
+import { Trash2, Image, Video, ExternalLink, Loader2, Trash, CheckSquare, Square, Upload, AlertCircle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -393,7 +393,13 @@ export default function ContentSection() {
                         className="bg-background/80"
                       />
                     </div>
-                    <div className="absolute top-2 right-2">
+                    <div className="absolute top-2 right-2 flex gap-2">
+                      {item.loadStatus === "failed" && (
+                        <Badge variant="destructive" className="bg-red-600">
+                          <AlertCircle className="w-3 h-3 mr-1" />
+                          Failed
+                        </Badge>
+                      )}
                       <Badge variant={item.type === "image" ? "default" : "destructive"}>
                         {item.type === "image" ? (
                           <Image className="w-3 h-3 mr-1" />

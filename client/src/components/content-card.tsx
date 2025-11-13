@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,14 +10,47 @@ interface ContentCardProps {
   content: Content;
   onAddToCart: (content: Content) => void;
   isInCart: boolean;
+  onImageError?: (contentId: string) => void;
 }
 
-export function ContentCard({ content, onAddToCart, isInCart }: ContentCardProps) {
+export function ContentCard({ content, onAddToCart, isInCart, onImageError }: ContentCardProps) {
+  const [imageError, setImageError] = useState(false);
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const handleImageError = () => {
+    if (!imageError) {
+      setImageError(true);
+      // Report to server that image failed to load
+      if (onImageError) {
+        onImageError(content.id);
+      } else {
+        // Fallback: report directly to API
+        fetch(`/api/content/${content.id}/report-failed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => {
+          // Silently fail if API call doesn't work
+        });
+      }
+    }
+  };
+
+  const handleImageLoad = () => {
+    // Mark as loaded if it successfully loads
+    if (imageError) {
+      setImageError(false);
+    }
+  };
+
+  // Don't render if image failed to load (for user-facing pages)
+  if (imageError && !onImageError) {
+    return null;
+  }
 
   return (
     <Card className="overflow-hidden hover-elevate transition-transform duration-200 ease-out" data-testid={`card-content-${content.id}`}>
@@ -28,6 +62,8 @@ export function ContentCard({ content, onAddToCart, isInCart }: ContentCardProps
             className="w-full h-full object-cover"
             draggable={false}
             data-testid={`img-content-${content.id}`}
+            onError={handleImageError}
+            onLoad={handleImageLoad}
           />
           
           {content.type === "video" && (

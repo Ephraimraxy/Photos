@@ -14,6 +14,7 @@ export const content = pgTable("content", {
   mimeType: text("mime_type").notNull(),
   fileSize: integer("file_size"),
   duration: integer("duration"), // for videos, in seconds
+  loadStatus: varchar("load_status", { length: 20 }).default("pending"), // "pending", "loaded", "failed"
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -253,12 +253,12 @@ const storage = {
         id, title, type, 
         google_drive_id, google_drive_url,
         supabase_path, supabase_url,
-        mime_type, file_size, duration
+        mime_type, file_size, duration, load_status
       ) VALUES (
         ${data.id}, ${data.title}, ${data.type},
         ${data.googleDriveId || null}, ${data.googleDriveUrl || null},
         ${data.supabasePath || null}, ${data.supabaseUrl || null},
-        ${data.mimeType}, ${data.fileSize || null}, ${data.duration || null}
+        ${data.mimeType}, ${data.fileSize || null}, ${data.duration || null}, ${data.loadStatus || 'pending'}
       )
       RETURNING 
         id, title, type,
@@ -269,6 +269,7 @@ const storage = {
         mime_type as "mimeType",
         file_size as "fileSize",
         duration,
+        load_status as "loadStatus",
         created_at as "createdAt"
     `;
     return result[0];
@@ -320,6 +321,7 @@ const storage = {
         mime_type as "mimeType",
         file_size as "fileSize",
         duration,
+        load_status as "loadStatus",
         created_at as "createdAt"
       FROM content 
       WHERE id = ${id}
@@ -341,6 +343,7 @@ const storage = {
         mime_type as "mimeType",
         file_size as "fileSize",
         duration,
+        load_status as "loadStatus",
         created_at as "createdAt"
       FROM content 
       ORDER BY created_at DESC
@@ -462,6 +465,23 @@ app.get('/content/:id/preview', async (req, res) => {
   } catch (error) {
     console.error('Content preview error:', error);
     res.status(500).json({ error: 'Failed to fetch content preview' });
+  }
+});
+
+// Report failed image load
+app.post('/content/:id/report-failed', async (req, res) => {
+  try {
+    const database = await initDB();
+    // Update loadStatus to 'failed'
+    await sqlConnection`
+      UPDATE content 
+      SET load_status = 'failed'
+      WHERE id = ${req.params.id}
+    `;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to report image error:', error);
+    res.status(500).json({ error: 'Failed to report image error' });
   }
 });
 
