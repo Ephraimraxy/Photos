@@ -8,18 +8,28 @@ const { drizzle } = require('drizzle-orm/postgres-js');
 const postgres = require('postgres');
 const { eq, and, desc, sql } = require('drizzle-orm');
 const { z } = require('zod');
-const { createClient } = require('@supabase/supabase-js');
-
 // Load environment variables
 require('dotenv').config();
 
-// Initialize Supabase client
+// Initialize Supabase client (lazy load to avoid bundling issues)
 let supabase = null;
+let createClient = null;
+
 function getSupabaseClient() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error(
       "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables"
     );
+  }
+  
+  // Lazy load Supabase to avoid bundling issues
+  if (!createClient) {
+    try {
+      const supabaseModule = require('@supabase/supabase-js');
+      createClient = supabaseModule.createClient;
+    } catch (error) {
+      throw new Error('Failed to load @supabase/supabase-js. Make sure it is installed.');
+    }
   }
   
   if (!supabase) {
