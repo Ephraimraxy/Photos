@@ -486,37 +486,8 @@ app.get('/content/:id/preview', async (req, res) => {
     }
 
     // Use Supabase URL if available, otherwise use Google Drive URL
+    // Since bucket is public, redirect directly to avoid timeouts
     if (content.supabaseUrl) {
-      // Check if the URL is accessible, if not, try to fetch and serve directly
-      try {
-        const supabaseUrl = process.env.SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        const BUCKET_NAME = 'content';
-        
-        if (supabaseUrl && supabaseKey && content.supabasePath) {
-          // Try to fetch the file from Supabase and serve it
-          // This works even if the bucket isn't fully public
-          const fileUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
-          const fileResponse = await axios.get(fileUrl, {
-            headers: {
-              'Authorization': `Bearer ${supabaseKey}`
-            },
-            responseType: 'arraybuffer',
-            timeout: 10000 // 10 second timeout
-          });
-          
-          // Set appropriate headers and serve the file
-          res.setHeader('Content-Type', content.mimeType || 'application/octet-stream');
-          res.setHeader('Cache-Control', 'public, max-age=31536000');
-          res.send(Buffer.from(fileResponse.data));
-          return;
-        }
-      } catch (fetchError) {
-        console.error('Failed to fetch from Supabase, trying redirect:', fetchError.message);
-        // Fallback to redirect if fetch fails
-      }
-      
-      // Fallback: redirect to public URL
       res.redirect(content.supabaseUrl);
     } else if (content.googleDriveUrl) {
       res.redirect(content.googleDriveUrl);
@@ -865,6 +836,11 @@ app.post('/payment/initialize', async (req, res) => {
       }
     );
 
+    if (!paystackResponse.data || !paystackResponse.data.data) {
+      console.error("Invalid Paystack response:", paystackResponse.data);
+      return res.status(500).json({ error: "Invalid response from payment gateway" });
+    }
+
     res.json({
       authorization_url: paystackResponse.data.data.authorization_url,
       reference: paystackResponse.data.data.reference,
@@ -872,7 +848,27 @@ app.post('/payment/initialize', async (req, res) => {
     });
   } catch (error) {
     console.error("Payment initialization error:", error);
-    res.status(500).json({ error: "Failed to initialize payment" });
+    
+    // Provide more detailed error information
+    if (error.response) {
+      console.error("Paystack API error:", error.response.status, error.response.data);
+      return res.status(500).json({ 
+        error: "Payment gateway error",
+        details: error.response.data?.message || "Failed to initialize payment"
+      });
+    } else if (error.request) {
+      console.error("No response from Paystack:", error.request);
+      return res.status(500).json({ 
+        error: "Payment gateway unavailable",
+        details: "Could not reach payment service"
+      });
+    } else {
+      console.error("Payment initialization error:", error.message);
+      return res.status(500).json({ 
+        error: "Failed to initialize payment",
+        details: error.message
+      });
+    }
   }
 });
 
