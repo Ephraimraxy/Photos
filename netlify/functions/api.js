@@ -227,8 +227,31 @@ const initDB = async () => {
 const storage = {
   async createContent(data) {
     const database = await initDB();
-    const [created] = await database.insert(content).values(data).returning();
-    return created;
+    // Use raw SQL to insert with all columns including Supabase columns
+    const result = await sqlConnection`
+      INSERT INTO content (
+        id, title, type, 
+        google_drive_id, google_drive_url,
+        supabase_path, supabase_url,
+        mime_type, file_size, duration
+      ) VALUES (
+        ${data.id}, ${data.title}, ${data.type},
+        ${data.googleDriveId || null}, ${data.googleDriveUrl || null},
+        ${data.supabasePath || null}, ${data.supabaseUrl || null},
+        ${data.mimeType}, ${data.fileSize || null}, ${data.duration || null}
+      )
+      RETURNING 
+        id, title, type,
+        google_drive_id as "googleDriveId",
+        google_drive_url as "googleDriveUrl",
+        supabase_path as "supabasePath",
+        supabase_url as "supabaseUrl",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        duration,
+        created_at as "createdAt"
+    `;
+    return result[0];
   },
   async createPurchase(data) {
     const database = await initDB();
@@ -266,13 +289,43 @@ const storage = {
 
   async getContentById(id) {
     const database = await initDB();
-    const [content] = await database.select().from(content).where(eq(content.id, id));
-    return content;
+    // Use raw SQL to handle all columns including new Supabase columns
+    const result = await sqlConnection`
+      SELECT 
+        id, title, type, 
+        google_drive_id as "googleDriveId",
+        google_drive_url as "googleDriveUrl",
+        supabase_path as "supabasePath",
+        supabase_url as "supabaseUrl",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        duration,
+        created_at as "createdAt"
+      FROM content 
+      WHERE id = ${id}
+      LIMIT 1
+    `;
+    return result[0] || null;
   },
 
   async getAllContent() {
     const database = await initDB();
-    return await database.select().from(content).orderBy(desc(content.createdAt));
+    // Use raw SQL to handle all columns including new Supabase columns
+    const result = await sqlConnection`
+      SELECT 
+        id, title, type, 
+        google_drive_id as "googleDriveId",
+        google_drive_url as "googleDriveUrl",
+        supabase_path as "supabasePath",
+        supabase_url as "supabaseUrl",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        duration,
+        created_at as "createdAt"
+      FROM content 
+      ORDER BY created_at DESC
+    `;
+    return result;
   },
 
   async getAllPurchases() {
@@ -368,8 +421,14 @@ app.get('/content/:id/preview', async (req, res) => {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // For now, return the thumbnail URL directly
-    res.redirect(content.thumbnailUrl);
+    // Use Supabase URL if available, otherwise use Google Drive URL
+    if (content.supabaseUrl) {
+      res.redirect(content.supabaseUrl);
+    } else if (content.googleDriveUrl) {
+      res.redirect(content.googleDriveUrl);
+    } else {
+      res.status(404).json({ error: 'Content URL not available' });
+    }
   } catch (error) {
     console.error('Content preview error:', error);
     res.status(500).json({ error: 'Failed to fetch content preview' });
