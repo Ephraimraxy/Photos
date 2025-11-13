@@ -1044,74 +1044,7 @@ app.post('/content/google-drive', async (req, res) => {
   }
 });
 
-// Upload single file and create content via Google Drive
-// Note: This won't work with regular Express middleware in Netlify Functions
-// We'll handle this through a special wrapper
-app.post('/content/upload', async (req, res) => {
-  try {
-    // In serverless environment, we can't use multer middleware
-    // Files will be parsed before reaching Express
-    console.log('Upload endpoint hit - req.file:', req.file, 'req.body:', req.body);
-    
-    if (!req.file) {
-      return res.status(400).json({ error: 'File is required' });
-    }
-    
-    const title = req.body?.title || req.file.originalname || req.file.filename;
-    const { drive } = initGoogleDrive();
-
-    const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
-    if (!folderId) {
-      return res.status(500).json({ error: 'GOOGLE_DRIVE_UPLOAD_FOLDER_ID not configured' });
-    }
-
-    // Upload to Google Drive
-    const fileMeta = {
-      name: title,
-      parents: [folderId],
-    };
-    const media = {
-      mimeType: req.file.mimetype,
-      body: Buffer.isBuffer(req.file.buffer)
-        ? require('stream').Readable.from(req.file.buffer)
-        : req.file.stream,
-    };
-
-    const uploadResp = await drive.files.create({
-      requestBody: fileMeta,
-      media,
-      fields: 'id, name'
-    });
-
-    const fileId = uploadResp.data.id;
-
-    // Make public
-    try {
-      await drive.permissions.create({
-        fileId,
-        requestBody: { role: 'reader', type: 'anyone' }
-      });
-    } catch (_) {}
-
-    const type = req.file.mimetype?.startsWith('video/') ? 'video' : 'image';
-    const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-    const thumbnailUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
-
-    const created = await storage.createContent({
-      id: randomUUID(),
-      title,
-      type,
-      thumbnailUrl,
-      downloadUrl,
-      googleDriveId: fileId,
-    });
-
-    res.json(created);
-  } catch (error) {
-    console.error('File upload error:', error);
-    res.status(500).json({ error: 'Failed to upload file' });
-  }
-});
+// Removed duplicate upload route - handled directly in handler
 
 // 404 diagnostics at the very end (after routes)
 app.use((req, res) => {
