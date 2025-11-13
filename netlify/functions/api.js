@@ -308,21 +308,21 @@ const storage = {
       return purchase;
     } catch (error) {
       console.error('Error creating purchase:', error);
-      // Try with raw SQL as fallback
+      // Try with raw SQL as fallback - use coupon_code (text) not coupon_id
       const result = await sqlConnection`
         INSERT INTO purchases (
           id, tracking_code, user_name, unique_id,
-          content_ids, total_amount, status, paystack_reference, coupon_id
+          content_ids, total_amount, status, paystack_reference, coupon_code
         ) VALUES (
           ${data.id}, ${data.trackingCode}, ${data.userName}, ${data.uniqueId},
           ${sqlConnection.array(data.contentIds)}, ${data.totalAmount}, ${data.status},
-          ${data.paystackReference}, ${data.couponId || null}
+          ${data.paystackReference}, ${data.couponCode || null}
         )
         RETURNING 
           id, tracking_code as "trackingCode", user_name as "userName",
           unique_id as "uniqueId", content_ids as "contentIds",
           total_amount as "totalAmount", status, paystack_reference as "paystackReference",
-          coupon_id as "couponId", created_at as "createdAt"
+          coupon_code as "couponCode", created_at as "createdAt"
       `;
       if (!result[0]) {
         throw new Error('Failed to create purchase - no record returned from SQL');
@@ -408,7 +408,7 @@ const storage = {
         id, tracking_code as "trackingCode", user_name as "userName",
         unique_id as "uniqueId", content_ids as "contentIds",
         total_amount as "totalAmount", status, paystack_reference as "paystackReference",
-        coupon_id as "couponId", created_at as "createdAt"
+        coupon_code as "couponCode", created_at as "createdAt"
       FROM purchases 
       ORDER BY created_at DESC
     `;
@@ -826,7 +826,7 @@ app.post('/payment/initialize', async (req, res) => {
       totalAmount,
       status: 'pending',
       paystackReference: reference,
-      couponId: coupon?.id || null,
+      couponCode: coupon?.code || null, // Use coupon code (text) not coupon ID
     });
 
     if (!purchase || !purchase.id) {
