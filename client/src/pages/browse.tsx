@@ -57,13 +57,11 @@ export default function Browse() {
 
   const images = content?.filter((c) => 
     c.type === "image" && 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-    c.loadStatus !== "failed" // Hide failed images from users
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
   ) || [];
   const videos = content?.filter((c) => 
     c.type === "video" && 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-    c.loadStatus !== "failed" // Hide failed videos from users
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
   ) || [];
 
   const handleImageError = async (contentId: string) => {

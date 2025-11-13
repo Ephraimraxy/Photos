@@ -248,64 +248,30 @@ const storage = {
   async createContent(data) {
     const database = await initDB();
     // Use raw SQL to insert with all columns including Supabase columns
-    // Try to insert load_status, but handle if column doesn't exist
-    try {
-      const result = await sqlConnection`
-        INSERT INTO content (
-          id, title, type, 
-          google_drive_id, google_drive_url,
-          supabase_path, supabase_url,
-          mime_type, file_size, duration, load_status
-        ) VALUES (
-          ${data.id}, ${data.title}, ${data.type},
-          ${data.googleDriveId || null}, ${data.googleDriveUrl || null},
-          ${data.supabasePath || null}, ${data.supabaseUrl || null},
-          ${data.mimeType}, ${data.fileSize || null}, ${data.duration || null}, ${data.loadStatus || 'pending'}
-        )
-        RETURNING 
-          id, title, type,
-          google_drive_id as "googleDriveId",
-          google_drive_url as "googleDriveUrl",
-          supabase_path as "supabasePath",
-          supabase_url as "supabaseUrl",
-          mime_type as "mimeType",
-          file_size as "fileSize",
-          duration,
-          COALESCE(load_status, 'pending') as "loadStatus",
-          created_at as "createdAt"
-      `;
-      return result[0];
-    } catch (error) {
-      // If load_status column doesn't exist, insert without it
-      if (error.message && error.message.includes('load_status')) {
-        const result = await sqlConnection`
-          INSERT INTO content (
-            id, title, type, 
-            google_drive_id, google_drive_url,
-            supabase_path, supabase_url,
-            mime_type, file_size, duration
-          ) VALUES (
-            ${data.id}, ${data.title}, ${data.type},
-            ${data.googleDriveId || null}, ${data.googleDriveUrl || null},
-            ${data.supabasePath || null}, ${data.supabaseUrl || null},
-            ${data.mimeType}, ${data.fileSize || null}, ${data.duration || null}
-          )
-          RETURNING 
-            id, title, type,
-            google_drive_id as "googleDriveId",
-            google_drive_url as "googleDriveUrl",
-            supabase_path as "supabasePath",
-            supabase_url as "supabaseUrl",
-            mime_type as "mimeType",
-            file_size as "fileSize",
-            duration,
-            'pending' as "loadStatus",
-            created_at as "createdAt"
-        `;
-        return result[0];
-      }
-      throw error;
-    }
+    const result = await sqlConnection`
+      INSERT INTO content (
+        id, title, type, 
+        google_drive_id, google_drive_url,
+        supabase_path, supabase_url,
+        mime_type, file_size, duration
+      ) VALUES (
+        ${data.id}, ${data.title}, ${data.type},
+        ${data.googleDriveId || null}, ${data.googleDriveUrl || null},
+        ${data.supabasePath || null}, ${data.supabaseUrl || null},
+        ${data.mimeType}, ${data.fileSize || null}, ${data.duration || null}
+      )
+      RETURNING 
+        id, title, type,
+        google_drive_id as "googleDriveId",
+        google_drive_url as "googleDriveUrl",
+        supabase_path as "supabasePath",
+        supabase_url as "supabaseUrl",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        duration,
+        created_at as "createdAt"
+    `;
+    return result[0];
   },
   async createPurchase(data) {
     const database = await initDB();
@@ -344,93 +310,42 @@ const storage = {
   async getContentById(id) {
     const database = await initDB();
     // Use raw SQL to handle all columns including new Supabase columns
-    // Try with load_status, fallback if column doesn't exist
-    try {
-      const result = await sqlConnection`
-        SELECT 
-          id, title, type, 
-          google_drive_id as "googleDriveId",
-          google_drive_url as "googleDriveUrl",
-          supabase_path as "supabasePath",
-          supabase_url as "supabaseUrl",
-          mime_type as "mimeType",
-          file_size as "fileSize",
-          duration,
-          COALESCE(load_status, 'pending') as "loadStatus",
-          created_at as "createdAt"
-        FROM content 
-        WHERE id = ${id}
-        LIMIT 1
-      `;
-      return result[0] || null;
-    } catch (error) {
-      // If load_status column doesn't exist, query without it
-      if (error.message && error.message.includes('load_status')) {
-        const result = await sqlConnection`
-          SELECT 
-            id, title, type, 
-            google_drive_id as "googleDriveId",
-            google_drive_url as "googleDriveUrl",
-            supabase_path as "supabasePath",
-            supabase_url as "supabaseUrl",
-            mime_type as "mimeType",
-            file_size as "fileSize",
-            duration,
-            'pending' as "loadStatus",
-            created_at as "createdAt"
-          FROM content 
-          WHERE id = ${id}
-          LIMIT 1
-        `;
-        return result[0] || null;
-      }
-      throw error;
-    }
+    const result = await sqlConnection`
+      SELECT 
+        id, title, type, 
+        google_drive_id as "googleDriveId",
+        google_drive_url as "googleDriveUrl",
+        supabase_path as "supabasePath",
+        supabase_url as "supabaseUrl",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        duration,
+        created_at as "createdAt"
+      FROM content 
+      WHERE id = ${id}
+      LIMIT 1
+    `;
+    return result[0] || null;
   },
 
   async getAllContent() {
     const database = await initDB();
     // Use raw SQL to handle all columns including new Supabase columns
-    // Try with load_status, fallback if column doesn't exist
-    try {
-      const result = await sqlConnection`
-        SELECT 
-          id, title, type, 
-          google_drive_id as "googleDriveId",
-          google_drive_url as "googleDriveUrl",
-          supabase_path as "supabasePath",
-          supabase_url as "supabaseUrl",
-          mime_type as "mimeType",
-          file_size as "fileSize",
-          duration,
-          COALESCE(load_status, 'pending') as "loadStatus",
-          created_at as "createdAt"
-        FROM content 
-        ORDER BY created_at DESC
-      `;
-      return result;
-    } catch (error) {
-      // If load_status column doesn't exist, query without it
-      if (error.message && error.message.includes('load_status')) {
-        const result = await sqlConnection`
-          SELECT 
-            id, title, type, 
-            google_drive_id as "googleDriveId",
-            google_drive_url as "googleDriveUrl",
-            supabase_path as "supabasePath",
-            supabase_url as "supabaseUrl",
-            mime_type as "mimeType",
-            file_size as "fileSize",
-            duration,
-            'pending' as "loadStatus",
-            created_at as "createdAt"
-          FROM content 
-          ORDER BY created_at DESC
-        `;
-        return result;
-      }
-      throw error;
-    }
+    const result = await sqlConnection`
+      SELECT 
+        id, title, type, 
+        google_drive_id as "googleDriveId",
+        google_drive_url as "googleDriveUrl",
+        supabase_path as "supabasePath",
+        supabase_url as "supabaseUrl",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        duration,
+        created_at as "createdAt"
+      FROM content 
+      ORDER BY created_at DESC
+    `;
+    return result;
   },
 
   async getAllPurchases() {
@@ -550,31 +465,10 @@ app.get('/content/:id/preview', async (req, res) => {
   }
 });
 
-// Report failed image load
+// Report failed image load (disabled for now - requires database migration)
 app.post('/content/:id/report-failed', async (req, res) => {
-  try {
-    const database = await initDB();
-    // Try to update loadStatus to 'failed'
-    // If column doesn't exist, just return success (feature not available yet)
-    try {
-      await sqlConnection`
-        UPDATE content 
-        SET load_status = 'failed'
-        WHERE id = ${req.params.id}
-      `;
-    } catch (error) {
-      // Column doesn't exist yet - silently ignore
-      if (error.message && error.message.includes('load_status')) {
-        console.log('load_status column not available yet');
-      } else {
-        throw error;
-      }
-    }
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Failed to report image error:', error);
-    res.status(500).json({ error: 'Failed to report image error' });
-  }
+  // Silently succeed - feature requires load_status column
+  res.json({ success: true });
 });
 
 // Upload file to Supabase Storage

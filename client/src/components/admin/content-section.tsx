@@ -393,13 +393,7 @@ export default function ContentSection() {
                         className="bg-background/80"
                       />
                     </div>
-                    <div className="absolute top-2 right-2 flex gap-2">
-                      {item.loadStatus === "failed" && (
-                        <Badge variant="destructive" className="bg-red-600">
-                          <AlertCircle className="w-3 h-3 mr-1" />
-                          Failed
-                        </Badge>
-                      )}
+                    <div className="absolute top-2 right-2">
                       <Badge variant={item.type === "image" ? "default" : "destructive"}>
                         {item.type === "image" ? (
                           <Image className="w-3 h-3 mr-1" />
