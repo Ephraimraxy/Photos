@@ -1,127 +1,130 @@
 # Payment Flow Documentation
 
-This document explains how the payment system manages and processes payments, and how it handles different payment statuses to control user access to downloads.
+This document explains how the payment system works, including how payments are processed, verified, and how users access their purchased content.
 
 ## Overview
 
-The payment system uses **Paystack** as the payment gateway and follows this flow:
-1. **Payment Initialization** - Creates a purchase record and initializes Paystack payment
-2. **Payment Processing** - User completes payment on Paystack
-3. **Payment Verification** - System verifies payment and updates purchase status
-4. **Download Access** - Users can download purchased content using secure tokens
-
-## Payment Status Flow
-
-### Status States
-
-The system uses three main status states for purchases:
-
-1. **`pending`** - Payment has been initialized but not yet completed
-2. **`completed`** - Payment has been successfully verified and download tokens generated
-3. **`failed`** - Payment verification failed or payment was not completed
-
-### Database Schema
-
-```sql
-purchases (
-  id: UUID (primary key)
-  trackingCode: TEXT (unique) - Customer tracking code
-  paystackReference: TEXT (unique) - Paystack transaction reference
-  contentIds: TEXT[] - Array of purchased content IDs
-  totalAmount: INTEGER - Total amount in kobo (Nigerian currency)
-  status: VARCHAR(20) - 'pending', 'completed', or 'failed'
-  userName: TEXT - Customer's full name
-  uniqueId: TEXT (unique) - Generated unique ID based on name
-  couponCode: TEXT (optional) - Applied coupon code
-  createdAt: TIMESTAMP
-)
-```
+The system uses **Paystack** for payment processing and manages purchase status through a database with the following states:
+- **pending**: Payment initialized but not yet verified
+- **completed**: Payment verified and download tokens generated
+- **failed**: Payment failed or was cancelled
 
 ## Payment Flow Steps
 
-### Step 1: Payment Initialization (`POST /api/payment/initialize`)
+### 1. User Adds Items to Cart
+- User browses content and adds items to their cart
+- Cart is stored in `localStorage` on the client
+- A tracking code is generated and stored: `CART{randomCode}`
 
-**When:** User clicks "Proceed to Payment" on checkout page
+### 2. User Proceeds to Checkout
+- User navigates to `/checkout` page
+- Cart items are loaded from `localStorage`
+- User enters their full name (required)
+- Optional: User applies a coupon code
 
-**What happens:**
+### 3. Payment Initialization (`POST /api/payment/initialize`)
+
+**Request:**
+```json
+{
+  "contentIds": ["uuid1", "uuid2", ...],
+  "trackingCode": "CARTABC123",
+  "userName": "John Doe",
+  "couponCode": "DISCOUNT50" // optional
+}
+```
+
+**Process:**
 1. Validates Paystack credentials are configured
-2. Validates required fields (contentIds, trackingCode, userName)
-3. Calculates total amount (₦200 per item, with coupon discounts applied)
-4. Creates a purchase record with `status: 'pending'`
-5. Generates a unique Paystack reference (`DOCUEDIT-{UUID}`)
-6. Calls Paystack API to initialize payment
-7. Returns authorization URL to redirect user to Paystack
+2. Calculates total amount (₦200 per item, or adjusted for coupons)
+3. Applies coupon discount if provided:
+   - Counts images and videos in cart
+   - Calculates excess items beyond coupon limits
+   - Only charges for excess items
+4. Generates unique Paystack reference: `DOCUEDIT-{uuid}`
+5. Creates purchase record in database with status `pending`:
+   ```sql
+   INSERT INTO purchases (
+     id, tracking_code, user_name, unique_id,
+     content_ids, total_amount, status, paystack_reference, coupon_id
+   )
+   ```
+6. Initializes Paystack payment:
+   - Amount converted to kobo (multiply by 100)
+   - Callback URL set to `/checkout` (Paystack redirects here after payment)
+   - Metadata includes contentIds and trackingCode
+7. Returns authorization URL to client
 
 **Response:**
 ```json
 {
-  "authorizationUrl": "https://checkout.paystack.com/...",
-  "reference": "DOCUEDIT-xxx",
-  "purchaseId": "uuid"
+  "authorization_url": "https://checkout.paystack.com/...",
+  "reference": "DOCUEDIT-abc123",
+  "purchaseId": "purchase-uuid"
 }
 ```
 
-**Purchase Status:** `pending`
+### 4. User Completes Payment on Paystack
+- Client redirects to `authorization_url`
+- User completes payment on Paystack's secure checkout page
+- Paystack redirects back to `/checkout?reference={reference}`
 
----
+### 5. Payment Verification (`POST /api/payment/verify`)
 
-### Step 2: User Completes Payment on Paystack
+**Triggered:** When user returns from Paystack with `?reference=...` in URL
 
-**When:** User is redirected to Paystack and completes payment
+**Request:**
+```json
+{
+  "reference": "DOCUEDIT-abc123"
+}
+```
 
-**What happens:**
-- User enters payment details on Paystack
-- Paystack processes the payment
-- User is redirected back to `/checkout?reference={reference}`
-
----
-
-### Step 3: Payment Verification (`POST /api/payment/verify`)
-
-**When:** User returns from Paystack with a reference parameter
-
-**What happens:**
-1. Extracts `reference` from request body
-2. Calls Paystack API to verify the transaction
-3. Checks if payment status is `"success"`
-4. Finds the purchase record by `paystackReference`
-5. **If purchase status is `pending`:**
+**Process:**
+1. Verifies payment with Paystack API:
+   ```
+   GET https://api.paystack.co/transaction/verify/{reference}
+   ```
+2. Checks if payment status is `success`
+3. Finds purchase record by `paystackReference`
+4. If purchase status is `pending`:
    - Updates purchase status to `completed`
-   - Generates download tokens for each purchased item (24-hour expiry)
-   - Stores tokens in `downloadTokens` table
-6. **If purchase status is already `completed`:**
-   - Skips token generation (prevents duplicate tokens)
+   - Generates download tokens for each content item:
+     - Token: UUID
+     - Expires: 24 hours from now
+     - Used: false
+     - One token per content item
+5. Returns purchase ID and tracking code
 
 **Response:**
 ```json
 {
-  "purchaseId": "uuid",
-  "trackingCode": "CART12345"
+  "purchaseId": "purchase-uuid",
+  "trackingCode": "CARTABC123"
 }
 ```
 
-**Purchase Status:** `completed` (if payment successful)
+### 6. User Redirected to Download Page
+- Client redirects to `/purchase/{purchaseId}`
+- Purchase page fetches purchase details
 
----
+### 7. Get Purchase Details (`GET /api/purchase/:id`)
 
-### Step 4: Download Access (`GET /api/purchase/:id`)
+**Process:**
+1. Fetches purchase from database
+2. Verifies purchase status is `completed` (404 if not)
+3. Gets all download tokens for this purchase
+4. Fetches content details for each item
+5. Returns purchase data with download tokens
 
-**When:** User navigates to `/purchase/:id` page
-
-**What happens:**
-1. Fetches purchase record by ID
-2. **Checks if `status === 'completed'`:**
-   - If yes: Returns purchase details with download tokens
-   - If no: Returns 404 (purchase not found or not completed)
-3. Returns list of purchased items with their download tokens
-
-**Response (if completed):**
+**Response:**
 ```json
 {
-  "purchaseId": "uuid",
+  "purchaseId": "purchase-uuid",
+  "trackingCode": "CARTABC123",
   "items": [
     {
-      "id": "content-id",
+      "id": "content-uuid",
       "title": "Image Title",
       "type": "image",
       "downloadToken": "token-uuid"
@@ -131,206 +134,165 @@ purchases (
 }
 ```
 
-**Response (if pending/failed):**
-```json
-{
-  "error": "Purchase not found"
-}
+### 8. User Downloads Content (`GET /api/download/:token`)
+
+**Process:**
+1. Validates token exists and is not used
+2. Checks token hasn't expired (24 hour limit)
+3. Marks token as `used = true` (one-time use)
+4. Fetches content from database
+5. Serves file:
+   - **Supabase**: Fetches file using service role key and streams to user
+   - **Google Drive**: Redirects to download URL
+6. Sets appropriate headers:
+   - `Content-Type`: MIME type
+   - `Content-Disposition`: `attachment; filename="..."`
+
+## Database Schema
+
+### Purchases Table
+```sql
+CREATE TABLE purchases (
+  id VARCHAR PRIMARY KEY,
+  tracking_code VARCHAR NOT NULL,
+  user_name VARCHAR NOT NULL,
+  unique_id VARCHAR NOT NULL,
+  content_ids TEXT[] NOT NULL, -- Array of content UUIDs
+  total_amount INTEGER NOT NULL, -- Amount in kobo
+  status VARCHAR NOT NULL, -- 'pending', 'completed', 'failed'
+  paystack_reference VARCHAR UNIQUE,
+  coupon_id VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
----
-
-### Step 5: Download Content (`GET /api/download/:token`)
-
-**When:** User clicks download button on purchase page
-
-**What happens:**
-1. Finds download token in database
-2. Checks if token is expired
-3. Checks if token has been used
-4. Marks token as used
-5. Fetches content from Supabase Storage or Google Drive
-6. Serves the file to the user
-
-**Security:**
-- Tokens expire after 24 hours
-- Tokens can only be used once
-- Only completed purchases have valid tokens
-
----
+### Download Tokens Table
+```sql
+CREATE TABLE download_tokens (
+  id VARCHAR PRIMARY KEY,
+  purchase_id VARCHAR NOT NULL,
+  content_id VARCHAR NOT NULL,
+  token TEXT UNIQUE NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
 
 ## Status Management
 
-### How Status Controls Access
+### Pending Status
+- Purchase created when payment is initialized
+- User hasn't completed payment yet
+- No download tokens generated
+- Purchase page shows "Processing" message with manual completion option
 
-1. **`pending` Status:**
-   - Purchase exists but payment not verified
-   - No download tokens generated
-   - User cannot access downloads
-   - Purchase page shows "Purchase Processing" message
-   - User can manually trigger verification via "Complete Purchase Manually" button
+### Completed Status
+- Payment verified successfully
+- Download tokens generated (24 hour expiry)
+- User can download all purchased items
+- Purchase page shows download links
 
-2. **`completed` Status:**
-   - Payment verified successfully
-   - Download tokens generated (24-hour expiry)
-   - User can access all purchased content
-   - Purchase page shows download links
+### Failed Status
+- Payment failed or was cancelled
+- No download tokens generated
+- User must retry payment
 
-3. **`failed` Status:**
-   - Payment verification failed
-   - No download tokens generated
-   - User cannot access downloads
-   - User must retry payment
+## Manual Purchase Completion
 
-### Manual Completion
+If payment verification fails or is delayed, users can manually complete their purchase:
 
-If automatic verification fails, users can manually complete the purchase:
-- Endpoint: `POST /api/purchase/:id/complete`
-- This re-runs the verification process
-- Useful if Paystack webhook fails or callback is missed
+**Endpoint:** `POST /api/purchase/:id/complete`
 
----
+**Process:**
+1. Finds purchase by ID
+2. If status is `pending`:
+   - Updates to `completed`
+   - Generates download tokens
+   - Returns success
+3. If already `completed`, returns message
 
-## Coupon System
+## Security Features
 
-### How Coupons Work
-
-1. **Coupon Application:**
-   - User enters coupon code on browse page
-   - System validates coupon and stores it in `activeCoupon` state
-   - Coupon is passed to payment initialization
-
-2. **Price Calculation:**
-   - Base price: ₦200 per item
-   - Coupon provides free images/videos (e.g., 5 images + 2 videos free)
-   - Only excess items beyond coupon limits are charged
-   - Example: 7 images + 3 videos with coupon (5 images + 2 videos free)
-     - Excess: 2 images + 1 video = 3 items
-     - Total: ₦600 (3 × ₦200)
-
-3. **Coupon Status:**
-   - Coupon is marked as `used` after successful payment
-   - `usedBy` field stores the user's name
-   - `usedAt` field stores the timestamp
-
----
+1. **One-Time Download Tokens**: Each token can only be used once
+2. **Token Expiry**: Tokens expire after 24 hours
+3. **Token Validation**: Tokens are verified against database before serving files
+4. **Service Role Key**: Supabase files are fetched using service role key (not exposed to client)
+5. **Purchase Verification**: Only completed purchases can access downloads
 
 ## Error Handling
 
-### Common Errors
+### Payment Initialization Errors
+- Missing Paystack credentials → 500 error
+- Invalid content IDs → 400 error
+- Missing tracking code or user name → 400 error
 
-1. **Payment Initialization Failed:**
-   - **Cause:** Missing Paystack credentials, invalid data
-   - **User sees:** "Payment Configuration Error" toast
-   - **Action:** Check `PAYSTACK_SECRET_KEY` environment variable
+### Payment Verification Errors
+- Invalid reference → 400 error
+- Payment not successful → 400 error
+- Purchase not found → 404 error
 
-2. **Payment Verification Failed:**
-   - **Cause:** Payment not successful, invalid reference
-   - **User sees:** "Payment Verification Failed" toast
-   - **Purchase status:** Remains `pending`
-   - **Action:** User can retry or manually complete
-
-3. **Purchase Not Found:**
-   - **Cause:** Purchase ID invalid or purchase not completed
-   - **User sees:** "Purchase Processing" message with manual completion option
-   - **Action:** User can manually trigger verification
-
-4. **Download Token Expired:**
-   - **Cause:** Token older than 24 hours
-   - **User sees:** "Download token has expired" error
-   - **Action:** Contact support for new download link
-
----
+### Download Errors
+- Invalid token → 404 error
+- Expired token → 410 error
+- Token already used → 404 error
+- Content not found → 404 error
 
 ## Environment Variables Required
 
 ```bash
-# Paystack Configuration
-PAYSTACK_SECRET_KEY=sk_test_xxx  # Your Paystack secret key
-
-# Netlify Configuration (optional, for callback URL)
-NETLIFY_URL=https://photosbuy.netlify.app
+PAYSTACK_SECRET_KEY=sk_live_... # or sk_test_... for testing
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+DATABASE_URL=postgresql://...
 ```
 
----
+## Testing the Flow
 
-## Security Considerations
+1. **Test Payment Initialization:**
+   ```bash
+   curl -X POST https://your-site.netlify.app/api/payment/initialize \
+     -H "Content-Type: application/json" \
+     -d '{
+       "contentIds": ["content-id"],
+       "trackingCode": "CART123",
+       "userName": "Test User"
+     }'
+   ```
 
-1. **Download Tokens:**
-   - Single-use tokens (marked as `used` after download)
-   - 24-hour expiry
-   - Only generated for `completed` purchases
+2. **Test Payment Verification:**
+   ```bash
+   curl -X POST https://your-site.netlify.app/api/payment/verify \
+     -H "Content-Type: application/json" \
+     -d '{"reference": "DOCUEDIT-abc123"}'
+   ```
 
-2. **Payment Verification:**
-   - Always verified with Paystack API (never trust client-side data)
-   - Purchase status only updated after successful Paystack verification
-
-3. **Access Control:**
-   - Only `completed` purchases can access downloads
-   - Purchase records are not publicly accessible (require purchase ID)
-
----
-
-## Testing Payment Flow
-
-### Test Mode
-
-Use Paystack test keys for development:
-- Test Secret Key: `sk_test_xxx`
-- Test Public Key: `pk_test_xxx`
-
-### Test Cards
-
-Paystack provides test cards for testing:
-- Success: `4084084084084081`
-- Decline: `5060666666666666666`
-
----
+3. **Test Download:**
+   ```bash
+   curl https://your-site.netlify.app/api/download/{token} \
+     -o downloaded-file.jpg
+   ```
 
 ## Troubleshooting
 
-### Payment Initialization Returns 500
-
-**Check:**
-1. `PAYSTACK_SECRET_KEY` is set in Netlify environment variables
-2. Paystack API is accessible
-3. Request body contains all required fields
+### Payment Initialization Fails
+- Check `PAYSTACK_SECRET_KEY` is set in Netlify environment variables
+- Verify Paystack account is active
+- Check network connectivity to Paystack API
 
 ### Payment Verification Fails
+- Ensure callback URL is correctly configured
+- Check Paystack webhook settings (if using webhooks)
+- Verify reference matches between initialization and verification
 
-**Check:**
-1. Paystack reference is valid
-2. Payment was actually completed on Paystack
-3. Purchase record exists in database
-4. Paystack API response shows `status: "success"`
+### Downloads Not Working
+- Check Supabase credentials are set
+- Verify bucket is accessible with service role key
+- Check token hasn't expired
+- Verify purchase status is `completed`
 
-### Downloads Not Available
-
-**Check:**
-1. Purchase status is `completed` (not `pending`)
-2. Download tokens were generated
-3. Tokens are not expired
-4. Tokens have not been used already
-
----
-
-## API Endpoints Summary
-
-| Endpoint | Method | Purpose | Status Check |
-|----------|--------|---------|--------------|
-| `/api/payment/initialize` | POST | Initialize payment | Creates `pending` purchase |
-| `/api/payment/verify` | POST | Verify payment | Updates to `completed` |
-| `/api/purchase/:id` | GET | Get purchase details | Only returns if `completed` |
-| `/api/purchase/:id/complete` | POST | Manually complete purchase | Updates to `completed` |
-| `/api/download/:token` | GET | Download content | Checks token validity |
-
----
-
-## Future Improvements
-
-1. **Webhook Support:** Implement Paystack webhooks for automatic verification
-2. **Retry Logic:** Automatic retry for failed verifications
-3. **Email Notifications:** Send download links via email
-4. **Extended Expiry:** Allow admin to extend download token expiry
-5. **Refund Handling:** Handle refunds and revoke download access
+### Images Not Displaying
+- Ensure Supabase bucket is public OR
+- Preview endpoint uses service role key to fetch files
+- Check `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set
 

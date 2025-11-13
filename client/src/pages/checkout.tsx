@@ -222,10 +222,11 @@ export default function Checkout() {
         return;
       }
 
-      // Always use authorization URL if available
-      if (response.authorizationUrl) {
-        console.log("Redirecting to authorization URL:", response.authorizationUrl);
-        window.location.href = response.authorizationUrl;
+      // Always use authorization URL if available (check both property names)
+      const authUrl = response.authorizationUrl || response.authorization_url;
+      if (authUrl) {
+        console.log("Redirecting to authorization URL:", authUrl);
+        window.location.href = authUrl;
         return; // Exit early to prevent inline fallback
       } else {
         console.error("No authorization URL received from server");

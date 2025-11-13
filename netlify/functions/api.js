@@ -724,8 +724,44 @@ app.get('/content/:id/download', async (req, res) => {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Redirect to Google Drive download URL
-    res.redirect(content.downloadUrl);
+    // Serve from Supabase if available, otherwise Google Drive
+    if (content.supabasePath) {
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const BUCKET_NAME = 'content';
+        
+        if (supabaseUrl && supabaseKey) {
+          // Fetch file from Supabase Storage
+          const fileUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
+          const fileResponse = await axios.get(fileUrl, {
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`
+            },
+            responseType: 'arraybuffer'
+          });
+          
+          // Set appropriate headers for download
+          res.setHeader('Content-Type', content.mimeType || 'application/octet-stream');
+          res.setHeader('Content-Disposition', `attachment; filename="${content.title}"`);
+          res.setHeader('Cache-Control', 'no-cache');
+          res.send(Buffer.from(fileResponse.data));
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to fetch from Supabase:', error.message);
+        // Fallback to redirect if available
+      }
+    }
+    
+    // Fallback to Google Drive or Supabase URL redirect
+    if (content.downloadUrl) {
+      res.redirect(content.downloadUrl);
+    } else if (content.supabaseUrl) {
+      res.redirect(content.supabaseUrl);
+    } else {
+      res.status(404).json({ error: 'Download URL not available' });
+    }
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Failed to process download' });
@@ -795,10 +831,13 @@ app.post('/payment/initialize', async (req, res) => {
       couponId: coupon?.id || null,
     });
 
-    // Get the callback URL - use environment variable or construct from request
+    // Initialize Paystack payment
+    // Get callback URL - use environment variable or construct from request headers
     let callbackUrl;
     if (process.env.NETLIFY_URL) {
       callbackUrl = `${process.env.NETLIFY_URL}/checkout`;
+    } else if (process.env.DEPLOY_PRIME_URL) {
+      callbackUrl = `${process.env.DEPLOY_PRIME_URL}/checkout`;
     } else {
       // Fallback: try to construct from request headers
       const protocol = req.headers['x-forwarded-proto'] || 'https';
@@ -806,7 +845,6 @@ app.post('/payment/initialize', async (req, res) => {
       callbackUrl = `${protocol}://${host}/checkout`;
     }
 
-    // Initialize Paystack payment
     const paystackResponse = await axios.post(
       "https://api.paystack.co/transaction/initialize",
       {
@@ -828,8 +866,7 @@ app.post('/payment/initialize', async (req, res) => {
     );
 
     res.json({
-      authorizationUrl: paystackResponse.data.data.authorization_url,
-      authorization_url: paystackResponse.data.data.authorization_url, // Keep for backward compatibility
+      authorization_url: paystackResponse.data.data.authorization_url,
       reference: paystackResponse.data.data.reference,
       purchaseId: purchase.id,
     });
@@ -909,6 +946,91 @@ app.post('/payment/verify', async (req, res) => {
   } catch (error) {
     console.error("Payment verification error:", error);
     res.status(500).json({ error: "Failed to verify payment" });
+  }
+});
+
+// Download by token (simpler endpoint used by purchase page)
+app.get('/download/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    if (!token) {
+      return res.status(400).json({ error: 'Download token required' });
+    }
+
+    // Verify token and get content
+    const database = await initDB();
+    const downloadToken = await database.select()
+      .from(downloadTokens)
+      .where(and(
+        eq(downloadTokens.token, token),
+        eq(downloadTokens.used, false)
+      ))
+      .limit(1);
+
+    if (downloadToken.length === 0) {
+      return res.status(404).json({ error: 'Invalid or expired download token' });
+    }
+
+    const tokenData = downloadToken[0];
+    
+    // Check if token is expired
+    if (new Date() > new Date(tokenData.expiresAt)) {
+      return res.status(410).json({ error: 'Download token has expired' });
+    }
+
+    // Mark token as used
+    await database.update(downloadTokens)
+      .set({ used: true })
+      .where(eq(downloadTokens.id, tokenData.id));
+
+    // Get content
+    const content = await storage.getContentById(tokenData.contentId);
+    if (!content) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+
+    // Serve from Supabase if available, otherwise Google Drive
+    if (content.supabasePath) {
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const BUCKET_NAME = 'content';
+        
+        if (supabaseUrl && supabaseKey) {
+          // Fetch file from Supabase Storage
+          const fileUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
+          const fileResponse = await axios.get(fileUrl, {
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`
+            },
+            responseType: 'arraybuffer'
+          });
+          
+          // Set appropriate headers for download
+          res.setHeader('Content-Type', content.mimeType || 'application/octet-stream');
+          res.setHeader('Content-Disposition', `attachment; filename="${content.title}"`);
+          res.setHeader('Cache-Control', 'no-cache');
+          res.send(Buffer.from(fileResponse.data));
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to fetch from Supabase:', error.message);
+        // Fallback to redirect if available
+      }
+    }
+    
+    // Fallback to Google Drive or Supabase URL redirect
+    if (content.downloadUrl) {
+      res.redirect(content.downloadUrl);
+    } else if (content.supabaseUrl) {
+      res.redirect(content.supabaseUrl);
+    } else {
+      res.status(404).json({ error: 'Download URL not available' });
+    }
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: 'Failed to process download' });
   }
 });
 

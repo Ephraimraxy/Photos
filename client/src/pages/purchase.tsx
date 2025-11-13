@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, Download, Clock, ArrowLeft, AlertCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, Download, Clock, ArrowLeft } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 
 interface PurchaseData {
   purchaseId: string;
