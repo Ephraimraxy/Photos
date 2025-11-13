@@ -300,8 +300,35 @@ const storage = {
   },
   async createPurchase(data) {
     const database = await initDB();
-    const [purchase] = await database.insert(purchases).values(data).returning();
-    return purchase;
+    try {
+      const [purchase] = await database.insert(purchases).values(data).returning();
+      if (!purchase) {
+        throw new Error('Failed to create purchase - no record returned');
+      }
+      return purchase;
+    } catch (error) {
+      console.error('Error creating purchase:', error);
+      // Try with raw SQL as fallback
+      const result = await sqlConnection`
+        INSERT INTO purchases (
+          id, tracking_code, user_name, unique_id,
+          content_ids, total_amount, status, paystack_reference, coupon_id
+        ) VALUES (
+          ${data.id}, ${data.trackingCode}, ${data.userName}, ${data.uniqueId},
+          ${sqlConnection.array(data.contentIds)}, ${data.totalAmount}, ${data.status},
+          ${data.paystackReference}, ${data.couponId || null}
+        )
+        RETURNING 
+          id, tracking_code as "trackingCode", user_name as "userName",
+          unique_id as "uniqueId", content_ids as "contentIds",
+          total_amount as "totalAmount", status, paystack_reference as "paystackReference",
+          coupon_id as "couponId", created_at as "createdAt"
+      `;
+      if (!result[0]) {
+        throw new Error('Failed to create purchase - no record returned from SQL');
+      }
+      return result[0];
+    }
   },
 
   async getPurchaseById(id) {
@@ -801,6 +828,14 @@ app.post('/payment/initialize', async (req, res) => {
       paystackReference: reference,
       couponId: coupon?.id || null,
     });
+
+    if (!purchase || !purchase.id) {
+      console.error('Failed to create purchase record');
+      return res.status(500).json({ 
+        error: 'Failed to create purchase record',
+        details: 'Database error occurred'
+      });
+    }
 
     // Initialize Paystack payment
     // Get callback URL - use environment variable or construct from request headers
