@@ -487,8 +487,36 @@ app.get('/content/:id/preview', async (req, res) => {
 
     // Use Supabase URL if available, otherwise use Google Drive URL
     if (content.supabaseUrl) {
-      // For Supabase, redirect directly to the public URL
-      // This is more efficient than proxying through the function
+      // Check if the URL is accessible, if not, try to fetch and serve directly
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const BUCKET_NAME = 'content';
+        
+        if (supabaseUrl && supabaseKey && content.supabasePath) {
+          // Try to fetch the file from Supabase and serve it
+          // This works even if the bucket isn't fully public
+          const fileUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
+          const fileResponse = await axios.get(fileUrl, {
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`
+            },
+            responseType: 'arraybuffer',
+            timeout: 10000 // 10 second timeout
+          });
+          
+          // Set appropriate headers and serve the file
+          res.setHeader('Content-Type', content.mimeType || 'application/octet-stream');
+          res.setHeader('Cache-Control', 'public, max-age=31536000');
+          res.send(Buffer.from(fileResponse.data));
+          return;
+        }
+      } catch (fetchError) {
+        console.error('Failed to fetch from Supabase, trying redirect:', fetchError.message);
+        // Fallback to redirect if fetch fails
+      }
+      
+      // Fallback: redirect to public URL
       res.redirect(content.supabaseUrl);
     } else if (content.googleDriveUrl) {
       res.redirect(content.googleDriveUrl);

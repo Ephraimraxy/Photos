@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ShoppingCart, Loader2, CheckCircle2, Copy, Download, User } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Loader2, CheckCircle2, Copy, Download, User, Gift } from "lucide-react";
 import { type CartItem } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
@@ -53,6 +53,7 @@ export default function Checkout() {
     videoCount: number;
     code: string;
   } | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState<number>(0);
 
   // Initialize payment mutation
   const initPaymentMutation = useMutation({
