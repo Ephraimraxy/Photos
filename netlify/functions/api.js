@@ -795,6 +795,17 @@ app.post('/payment/initialize', async (req, res) => {
       couponId: coupon?.id || null,
     });
 
+    // Get the callback URL - use environment variable or construct from request
+    let callbackUrl;
+    if (process.env.NETLIFY_URL) {
+      callbackUrl = `${process.env.NETLIFY_URL}/checkout`;
+    } else {
+      // Fallback: try to construct from request headers
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host || 'photosbuy.netlify.app';
+      callbackUrl = `${protocol}://${host}/checkout`;
+    }
+
     // Initialize Paystack payment
     const paystackResponse = await axios.post(
       "https://api.paystack.co/transaction/initialize",
@@ -802,7 +813,7 @@ app.post('/payment/initialize', async (req, res) => {
         amount: totalAmount * 100, // Convert to kobo
         email: "customer@docueditphotos.com",
         reference,
-        callback_url: `${req.protocol}://${req.get('host')}/checkout`,
+        callback_url: callbackUrl,
         metadata: {
           contentIds,
           trackingCode,
@@ -817,7 +828,8 @@ app.post('/payment/initialize', async (req, res) => {
     );
 
     res.json({
-      authorization_url: paystackResponse.data.data.authorization_url,
+      authorizationUrl: paystackResponse.data.data.authorization_url,
+      authorization_url: paystackResponse.data.data.authorization_url, // Keep for backward compatibility
       reference: paystackResponse.data.data.reference,
       purchaseId: purchase.id,
     });
