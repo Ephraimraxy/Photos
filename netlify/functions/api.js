@@ -372,6 +372,11 @@ const storage = {
     const database = await initDB();
     const [coupon] = await database.select().from(coupons).where(eq(coupons.code, code));
     return coupon;
+  },
+
+  async deleteContent(id) {
+    const database = await initDB();
+    await database.delete(content).where(eq(content.id, id));
   }
 };
 
@@ -469,6 +474,44 @@ app.get('/content/:id/preview', async (req, res) => {
 app.post('/content/:id/report-failed', async (req, res) => {
   // Silently succeed - feature requires load_status column
   res.json({ success: true });
+});
+
+// Delete content
+app.delete('/content/:id', async (req, res) => {
+  try {
+    const content = await storage.getContentById(req.params.id);
+    if (!content) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+
+    // Delete file from Supabase if it exists
+    if (content.supabasePath) {
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const BUCKET_NAME = 'content';
+        
+        if (supabaseUrl && supabaseKey) {
+          const deleteUrl = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${content.supabasePath}`;
+          await axios.delete(deleteUrl, {
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Failed to delete file from Supabase:', error);
+        // Continue with database deletion even if file deletion fails
+      }
+    }
+
+    // Delete from database
+    await storage.deleteContent(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete error:', error);
+    res.status(500).json({ error: 'Failed to delete content' });
+  }
 });
 
 // Upload file to Supabase Storage
