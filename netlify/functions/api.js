@@ -834,18 +834,23 @@ app.post('/payment/initialize', async (req, res) => {
     if (existingPurchase.length > 0) {
       const existing = existingPurchase[0];
       
-      // If purchase exists and is pending, reuse it (user might be retrying)
+      // If purchase exists and is pending, reuse it but generate NEW Paystack reference
+      // Paystack doesn't allow duplicate references
       if (existing.status === 'pending') {
         console.log('Reusing existing pending purchase:', existing.id);
         
-        // Update the purchase with new details using raw SQL (faster)
+        // Generate NEW Paystack reference (can't reuse old one)
+        const newReference = `DOCUEDIT-${randomUUID()}`;
+        
+        // Update the purchase with new details and new reference
         await sqlConnection`
           UPDATE purchases 
           SET 
             content_ids = ${sqlConnection.array(contentIds)},
             total_amount = ${totalAmount},
             coupon_code = ${coupon?.code || null},
-            user_name = ${userName}
+            user_name = ${userName},
+            paystack_reference = ${newReference}
           WHERE id = ${existing.id}
         `;
         
@@ -860,9 +865,6 @@ app.post('/payment/initialize', async (req, res) => {
           WHERE id = ${existing.id}
         `;
         purchase = updatedPurchase[0];
-        
-        // Use existing reference or generate new one
-        // Reference will be set later in the code
       } else {
         // If purchase is completed or failed, generate new tracking code
         console.log('Existing purchase is not pending, generating new tracking code');
@@ -922,14 +924,17 @@ app.post('/payment/initialize', async (req, res) => {
       }
     }
     
-    // Get the reference from purchase (might be existing or new)
-    let reference = purchase.paystackReference || `DOCUEDIT-${randomUUID()}`;
+    // Get the reference from purchase - should always be set now
+    let reference = purchase.paystackReference;
     
-    // If purchase didn't have a reference, update it
-    if (!purchase.paystackReference) {
-      await database.update(purchases)
-        .set({ paystackReference: reference })
-        .where(eq(purchases.id, purchase.id));
+    // Ensure we have a reference (should always be set, but just in case)
+    if (!reference) {
+      reference = `DOCUEDIT-${randomUUID()}`;
+      await sqlConnection`
+        UPDATE purchases 
+        SET paystack_reference = ${reference}
+        WHERE id = ${purchase.id}
+      `;
     }
 
     // Initialize Paystack payment
@@ -944,29 +949,6 @@ app.post('/payment/initialize', async (req, res) => {
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'photosbuy.netlify.app';
       callbackUrl = `${protocol}://${host}/payment-confirmation`;
-    }
-
-    // Check if this reference was already used (avoid duplicate Paystack transactions)
-    // Use raw SQL for faster query
-    try {
-      const existingByRef = await sqlConnection`
-        SELECT id FROM purchases 
-        WHERE paystack_reference = ${reference} AND id != ${purchase.id}
-        LIMIT 1
-      `;
-      
-      if (existingByRef.length > 0) {
-        // Reference already used, generate new one
-        reference = `DOCUEDIT-${randomUUID()}`;
-        await sqlConnection`
-          UPDATE purchases 
-          SET paystack_reference = ${reference}
-          WHERE id = ${purchase.id}
-        `;
-      }
-    } catch (error) {
-      console.error('Error checking reference:', error);
-      // Continue with current reference
     }
 
     const paystackResponse = await axios.post(
