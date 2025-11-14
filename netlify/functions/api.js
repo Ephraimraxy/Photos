@@ -813,11 +813,21 @@ app.post('/payment/initialize', async (req, res) => {
     }
 
     // Check if a purchase with this tracking code already exists
+    // Use raw SQL for faster query
     const database = await initDB();
-    const existingPurchase = await database.select()
-      .from(purchases)
-      .where(eq(purchases.trackingCode, trackingCode))
-      .limit(1);
+    let existingPurchase = [];
+    try {
+      const result = await sqlConnection`
+        SELECT id, tracking_code as "trackingCode", status, paystack_reference as "paystackReference"
+        FROM purchases 
+        WHERE tracking_code = ${trackingCode}
+        LIMIT 1
+      `;
+      existingPurchase = result;
+    } catch (error) {
+      console.error('Error checking existing purchase:', error);
+      // Fall through to create new purchase
+    }
 
     let purchase;
     
@@ -827,17 +837,29 @@ app.post('/payment/initialize', async (req, res) => {
       // If purchase exists and is pending, reuse it (user might be retrying)
       if (existing.status === 'pending') {
         console.log('Reusing existing pending purchase:', existing.id);
-        purchase = existing;
         
-        // Update the purchase with new details (in case content changed)
-        await database.update(purchases)
-          .set({
-            contentIds: contentIds,
-            totalAmount: totalAmount,
-            couponCode: coupon?.code || null,
-            userName: userName,
-          })
-          .where(eq(purchases.id, existing.id));
+        // Update the purchase with new details using raw SQL (faster)
+        await sqlConnection`
+          UPDATE purchases 
+          SET 
+            content_ids = ${sqlConnection.array(contentIds)},
+            total_amount = ${totalAmount},
+            coupon_code = ${coupon?.code || null},
+            user_name = ${userName}
+          WHERE id = ${existing.id}
+        `;
+        
+        // Get full purchase data
+        const updatedPurchase = await sqlConnection`
+          SELECT 
+            id, tracking_code as "trackingCode", user_name as "userName",
+            unique_id as "uniqueId", content_ids as "contentIds",
+            total_amount as "totalAmount", status, paystack_reference as "paystackReference",
+            coupon_code as "couponCode", created_at as "createdAt"
+          FROM purchases 
+          WHERE id = ${existing.id}
+        `;
+        purchase = updatedPurchase[0];
         
         // Use existing reference or generate new one
         // Reference will be set later in the code
@@ -925,17 +947,26 @@ app.post('/payment/initialize', async (req, res) => {
     }
 
     // Check if this reference was already used (avoid duplicate Paystack transactions)
-    const existingByRef = await database.select()
-      .from(purchases)
-      .where(eq(purchases.paystackReference, reference))
-      .limit(1);
-    
-    if (existingByRef.length > 0 && existingByRef[0].id !== purchase.id) {
-      // Reference already used, generate new one
-      reference = `DOCUEDIT-${randomUUID()}`;
-      await database.update(purchases)
-        .set({ paystackReference: reference })
-        .where(eq(purchases.id, purchase.id));
+    // Use raw SQL for faster query
+    try {
+      const existingByRef = await sqlConnection`
+        SELECT id FROM purchases 
+        WHERE paystack_reference = ${reference} AND id != ${purchase.id}
+        LIMIT 1
+      `;
+      
+      if (existingByRef.length > 0) {
+        // Reference already used, generate new one
+        reference = `DOCUEDIT-${randomUUID()}`;
+        await sqlConnection`
+          UPDATE purchases 
+          SET paystack_reference = ${reference}
+          WHERE id = ${purchase.id}
+        `;
+      }
+    } catch (error) {
+      console.error('Error checking reference:', error);
+      // Continue with current reference
     }
 
     const paystackResponse = await axios.post(
@@ -955,6 +986,7 @@ app.post('/payment/initialize', async (req, res) => {
           Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           "Content-Type": "application/json",
         },
+        timeout: 10000, // 10 second timeout
       }
     );
 
