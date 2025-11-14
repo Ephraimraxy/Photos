@@ -10,6 +10,7 @@ import { useLocation, useRoute } from "wouter";
 
 interface PurchaseData {
   purchaseId: string;
+  reference?: string;
   items: Array<{
     id: string;
     title: string;
@@ -17,6 +18,7 @@ interface PurchaseData {
     downloadToken: string;
   }>;
   expiresAt: string;
+  downloadExpired?: boolean;
 }
 
 export default function Purchase() {
@@ -190,16 +192,31 @@ export default function Purchase() {
                     <Clock className="w-5 h-5" />
                     Download Access
                   </CardTitle>
-                  <Badge variant="outline" className="text-base" data-testid="badge-time-left">
-                    {formatTimeLeft(timeLeft)}
-                  </Badge>
+                  {purchase?.downloadExpired ? (
+                    <Badge variant="destructive" className="text-base">
+                      Expired
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-base" data-testid="badge-time-left">
+                      {formatTimeLeft(timeLeft)}
+                    </Badge>
+                  )}
                 </div>
                 <CardDescription>
-                  Your download links will expire in 24 hours
+                  {purchase?.downloadExpired 
+                    ? "Your download links have expired (24 hours). Please contact support if you need to download again."
+                    : "Your download links will expire in 24 hours"
+                  }
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Progress value={progressPercentage} className="h-2" data-testid="progress-timer" />
+                {purchase?.downloadExpired ? (
+                  <div className="text-center py-4 text-muted-foreground">
+                    Download period has expired
+                  </div>
+                ) : (
+                  <Progress value={progressPercentage} className="h-2" data-testid="progress-timer" />
+                )}
               </CardContent>
             </Card>
 
@@ -228,11 +245,11 @@ export default function Purchase() {
                     </div>
                     <Button
                       onClick={() => handleDownload(item.downloadToken, item.title)}
-                      disabled={timeLeft === 0}
+                      disabled={timeLeft === 0 || purchase?.downloadExpired}
                       data-testid={`button-download-${item.id}`}
                     >
                       <Download className="w-4 h-4 mr-2" />
-                      Download
+                      {purchase?.downloadExpired ? "Download Expired" : "Download"}
                     </Button>
                   </div>
                 ))}

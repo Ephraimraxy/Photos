@@ -1177,6 +1177,113 @@ app.post('/purchase/:id/complete', async (req, res) => {
   }
 });
 
+// Transaction ID lookup (for complaints/disputes)
+app.post('/transaction/lookup', async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({ error: "Transaction ID is required" });
+    }
+
+    // Find purchase by Paystack reference
+    const purchase = await storage.getPurchaseByReference(transactionId);
+    if (!purchase) {
+      return res.status(404).json({ 
+        error: "Transaction ID not found",
+        message: "This transaction ID does not exist in our system."
+      });
+    }
+
+    // Check with Paystack to get latest status
+    let paystackStatus = null;
+    let statusMessage = "";
+    let updatedStatus = purchase.status;
+
+    try {
+      if (process.env.PAYSTACK_SECRET_KEY) {
+        const paystackResponse = await axios.get(
+          `https://api.paystack.co/transaction/verify/${transactionId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            },
+          }
+        );
+
+        if (paystackResponse.data && paystackResponse.data.data) {
+          paystackStatus = paystackResponse.data.data.status;
+          
+          // Update purchase status if it changed
+          if (paystackStatus === "success" && purchase.status === 'pending') {
+            updatedStatus = 'completed';
+            await storage.updatePurchaseStatus(purchase.id, "completed");
+            
+            // Generate download tokens if not already generated
+            const tokens = await storage.getDownloadTokensByPurchase(purchase.id);
+            if (tokens.length === 0) {
+              const expiresAt = new Date();
+              expiresAt.setHours(expiresAt.getHours() + 24);
+              
+              const tokenPromises = purchase.contentIds.map(contentId => 
+                storage.createDownloadToken({
+                  purchaseId: purchase.id,
+                  contentId,
+                  token: randomUUID(),
+                  expiresAt,
+                  used: false,
+                })
+              );
+              await Promise.all(tokenPromises);
+            }
+          } else if (paystackStatus === "failed" && purchase.status === 'pending') {
+            updatedStatus = 'failed';
+            await storage.updatePurchaseStatus(purchase.id, "failed");
+          }
+        }
+      }
+    } catch (paystackError) {
+      console.error("Error checking Paystack status:", paystackError.message);
+      // Continue with database status if Paystack check fails
+    }
+
+    // Set status message based on final status
+    if (updatedStatus === "completed") {
+      statusMessage = "Payment successful! Your order is ready for download.";
+    } else if (updatedStatus === "pending") {
+      statusMessage = "Your transaction is still pending, check back later.";
+    } else if (updatedStatus === "failed") {
+      statusMessage = "This transaction failed.";
+    }
+
+    // Check if download tokens are expired (for completed purchases)
+    let downloadExpired = false;
+    if (updatedStatus === "completed") {
+      const tokens = await storage.getDownloadTokensByPurchase(purchase.id);
+      if (tokens.length > 0) {
+        const firstToken = tokens[0];
+        downloadExpired = new Date() > new Date(firstToken.expiresAt);
+      }
+    }
+
+    res.json({
+      purchaseId: purchase.id,
+      trackingCode: purchase.trackingCode,
+      reference: transactionId,
+      status: updatedStatus,
+      paystackStatus: paystackStatus,
+      message: statusMessage,
+      downloadExpired: downloadExpired,
+      totalAmount: purchase.totalAmount,
+      createdAt: purchase.createdAt,
+      userName: purchase.userName,
+    });
+  } catch (error) {
+    console.error("Transaction lookup error:", error);
+    res.status(500).json({ error: "Failed to lookup transaction ID" });
+  }
+});
+
 // Tracking code lookup
 app.post('/tracking/lookup', async (req, res) => {
   try {
