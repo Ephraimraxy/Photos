@@ -977,8 +977,10 @@ app.post('/payment/initialize', async (req, res) => {
       return res.status(500).json({ error: "Invalid response from payment gateway" });
     }
 
+    // Return both formats for compatibility
     res.json({
       authorization_url: paystackResponse.data.data.authorization_url,
+      authorizationUrl: paystackResponse.data.data.authorization_url, // Also include camelCase
       reference: paystackResponse.data.data.reference,
       purchaseId: purchase.id,
     });

@@ -189,8 +189,6 @@ export default function Checkout() {
       const response = await initPaymentMutation.mutateAsync(paymentData);
 
       console.log("Payment response:", response);
-      console.log("Authorization URL:", response.authorizationUrl);
-      console.log("Response keys:", Object.keys(response));
 
       // Check if response contains an error
       if (response.error) {
@@ -204,13 +202,16 @@ export default function Checkout() {
       }
 
       // Always use authorization URL if available (check both property names)
-      const authUrl = response.authorizationUrl || response.authorization_url;
+      const authUrl = response.authorization_url || response.authorizationUrl;
       if (authUrl) {
         console.log("Redirecting to authorization URL:", authUrl);
-        window.location.href = authUrl;
+        // Use window.location.replace to avoid back button issues
+        window.location.replace(authUrl);
         return; // Exit early to prevent inline fallback
       } else {
         console.error("No authorization URL received from server");
+        console.error("Response keys:", Object.keys(response));
+        console.error("Full response:", JSON.stringify(response, null, 2));
         toast({
           title: "Payment Error",
           description: "Unable to initialize payment. Please try again.",
