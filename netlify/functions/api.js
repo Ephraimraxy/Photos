@@ -816,24 +816,84 @@ app.post('/payment/initialize', async (req, res) => {
     const reference = `DOCUEDIT-${randomUUID()}`;
     const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
+    // Check if tracking code already exists
+    let finalTrackingCode = trackingCode;
+    let attempts = 0;
+    const maxAttempts = 5;
+    
+    while (attempts < maxAttempts) {
+      try {
+        // Check if tracking code exists
+        const database = await initDB();
+        const existing = await database.select()
+          .from(purchases)
+          .where(eq(purchases.trackingCode, finalTrackingCode))
+          .limit(1);
+        
+        if (existing.length > 0) {
+          // Generate new tracking code
+          finalTrackingCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+          attempts++;
+          continue;
+        }
+        
+        // Tracking code is unique, break out of loop
+        break;
+      } catch (checkError) {
+        console.error('Error checking tracking code:', checkError);
+        // If check fails, try to create anyway (might be a different error)
+        break;
+      }
+    }
+
     // Create purchase record
-    const purchase = await storage.createPurchase({
-      id: randomUUID(),
-      trackingCode,
-      userName,
-      uniqueId,
-      contentIds,
-      totalAmount,
-      status: 'pending',
-      paystackReference: reference,
-      couponCode: coupon?.code || null, // Use coupon code (text) not coupon ID
-    });
+    let purchase;
+    try {
+      purchase = await storage.createPurchase({
+        id: randomUUID(),
+        trackingCode: finalTrackingCode,
+        userName,
+        uniqueId,
+        contentIds,
+        totalAmount,
+        status: 'pending',
+        paystackReference: reference,
+        couponCode: coupon?.code || null, // Use coupon code (text) not coupon ID
+      });
+    } catch (createError) {
+      // If still fails due to duplicate, generate a completely new one
+      if (createError.message?.includes('duplicate') || createError.message?.includes('unique constraint')) {
+        finalTrackingCode = `CART${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        purchase = await storage.createPurchase({
+          id: randomUUID(),
+          trackingCode: finalTrackingCode,
+          userName,
+          uniqueId,
+          contentIds,
+          totalAmount,
+          status: 'pending',
+          paystackReference: reference,
+          couponCode: coupon?.code || null,
+        });
+      } else {
+        throw createError;
+      }
+    }
 
     if (!purchase || !purchase.id) {
       console.error('Failed to create purchase record');
       return res.status(500).json({ 
         error: 'Failed to create purchase record',
         details: 'Database error occurred'
+      });
+    }
+
+    // If tracking code was changed, return it to client
+    if (finalTrackingCode !== trackingCode) {
+      return res.json({
+        newTrackingCode: finalTrackingCode,
+        message: 'A new tracking code has been generated. Please try again.',
+        retry: true
       });
     }
 

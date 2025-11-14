@@ -61,11 +61,35 @@ export default function Checkout() {
       const response = await apiRequest("POST", "/api/payment/initialize", data);
       return await response.json();
     },
+    onSuccess: (data: any) => {
+      // Check if server generated a new tracking code
+      if (data.newTrackingCode && data.retry) {
+        localStorage.setItem("trackingCode", data.newTrackingCode);
+        setTrackingCode(data.newTrackingCode);
+        toast({
+          title: "Session Refreshed",
+          description: data.message || "Please try your payment again.",
+        });
+        // Retry payment initialization with new tracking code
+        setTimeout(() => {
+          const paymentData: any = {
+            contentIds: cartItems.map((item) => item.id),
+            trackingCode: data.newTrackingCode,
+            userName: userName.trim(),
+          };
+          if (activeCoupon?.code) {
+            paymentData.couponCode = activeCoupon.code;
+          }
+          initPaymentMutation.mutate(paymentData);
+        }, 500);
+        return;
+      }
+    },
     onError: (error: any) => {
       console.error("Payment initialization error:", error);
       
       // Handle duplicate tracking code error
-      if (error.code === "DUPLICATE_TRACKING_CODE" || error.message?.includes("tracking code")) {
+      if (error.message?.includes("tracking code") || error.message?.includes("duplicate")) {
         // Generate new tracking code
         const newCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
         localStorage.setItem("trackingCode", newCode);
