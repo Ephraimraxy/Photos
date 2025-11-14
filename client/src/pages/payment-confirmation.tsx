@@ -242,25 +242,15 @@ export default function PaymentConfirmation() {
                   Download All Items
                 </Button>
               ) : (
-                <>
-                  <Button
-                    onClick={() => setLocation("/complaints-disputes")}
-                    className="flex-1 h-12 text-base"
-                    variant="outline"
-                    size="lg"
-                  >
-                    Check Status Again
-                  </Button>
-                  <Button
-                    onClick={() => setLocation("/")}
-                    className="flex-1 h-12 text-base"
-                    variant="outline"
-                    size="lg"
-                  >
-                    <ShoppingCart className="w-5 h-5 mr-2" />
-                    Back to Cart
-                  </Button>
-                </>
+                <Button
+                  onClick={() => setLocation("/")}
+                  className="flex-1 h-12 text-base"
+                  variant="outline"
+                  size="lg"
+                >
+                  <ShoppingCart className="w-5 h-5 mr-2" />
+                  Back to Cart
+                </Button>
               )}
             </div>
 

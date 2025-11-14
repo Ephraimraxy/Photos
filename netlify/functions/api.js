@@ -812,129 +812,29 @@ app.post('/payment/initialize', async (req, res) => {
       }
     }
 
-    // Check if a purchase with this tracking code already exists
-    // Use raw SQL for faster query
-    const database = await initDB();
-    let existingPurchase = [];
-    try {
-      const result = await sqlConnection`
-        SELECT id, tracking_code as "trackingCode", status, paystack_reference as "paystackReference"
-        FROM purchases 
-        WHERE tracking_code = ${trackingCode}
-        LIMIT 1
-      `;
-      existingPurchase = result;
-    } catch (error) {
-      console.error('Error checking existing purchase:', error);
-      // Fall through to create new purchase
-    }
+    // Generate unique reference
+    const reference = `DOCUEDIT-${randomUUID()}`;
+    const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
-    let purchase;
-    
-    if (existingPurchase.length > 0) {
-      const existing = existingPurchase[0];
-      
-      // If purchase exists and is pending, reuse it but generate NEW Paystack reference
-      // Paystack doesn't allow duplicate references
-      if (existing.status === 'pending') {
-        console.log('Reusing existing pending purchase:', existing.id);
-        
-        // Generate NEW Paystack reference (can't reuse old one)
-        const newReference = `DOCUEDIT-${randomUUID()}`;
-        
-        // Update the purchase with new details and new reference
-        await sqlConnection`
-          UPDATE purchases 
-          SET 
-            content_ids = ${sqlConnection.array(contentIds)},
-            total_amount = ${totalAmount},
-            coupon_code = ${coupon?.code || null},
-            user_name = ${userName},
-            paystack_reference = ${newReference}
-          WHERE id = ${existing.id}
-        `;
-        
-        // Get full purchase data
-        const updatedPurchase = await sqlConnection`
-          SELECT 
-            id, tracking_code as "trackingCode", user_name as "userName",
-            unique_id as "uniqueId", content_ids as "contentIds",
-            total_amount as "totalAmount", status, paystack_reference as "paystackReference",
-            coupon_code as "couponCode", created_at as "createdAt"
-          FROM purchases 
-          WHERE id = ${existing.id}
-        `;
-        purchase = updatedPurchase[0];
-      } else {
-        // If purchase is completed or failed, generate new tracking code
-        console.log('Existing purchase is not pending, generating new tracking code');
-        const newTrackingCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-        const reference = `DOCUEDIT-${randomUUID()}`;
-        const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
-        
-        purchase = await storage.createPurchase({
-          id: randomUUID(),
-          trackingCode: newTrackingCode,
-          userName,
-          uniqueId,
-          contentIds,
-          totalAmount,
-          status: 'pending',
-          paystackReference: reference,
-          couponCode: coupon?.code || null,
-        });
-        
-        if (!purchase || !purchase.id) {
-          console.error('Failed to create purchase record');
-          return res.status(500).json({ 
-            error: 'Failed to create purchase record',
-            details: 'Database error occurred'
-          });
-        }
-        
-        // Return new tracking code to client
-        return res.status(200).json({
-          newTrackingCode: newTrackingCode,
-          message: 'A new tracking code has been generated. Please try again.',
-        });
-      }
-    } else {
-      // No existing purchase, create new one
-      const reference = `DOCUEDIT-${randomUUID()}`;
-      const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
-      
-      purchase = await storage.createPurchase({
-        id: randomUUID(),
-        trackingCode,
-        userName,
-        uniqueId,
-        contentIds,
-        totalAmount,
-        status: 'pending',
-        paystackReference: reference,
-        couponCode: coupon?.code || null,
+    // Create purchase record
+    const purchase = await storage.createPurchase({
+      id: randomUUID(),
+      trackingCode,
+      userName,
+      uniqueId,
+      contentIds,
+      totalAmount,
+      status: 'pending',
+      paystackReference: reference,
+      couponCode: coupon?.code || null, // Use coupon code (text) not coupon ID
+    });
+
+    if (!purchase || !purchase.id) {
+      console.error('Failed to create purchase record');
+      return res.status(500).json({ 
+        error: 'Failed to create purchase record',
+        details: 'Database error occurred'
       });
-
-      if (!purchase || !purchase.id) {
-        console.error('Failed to create purchase record');
-        return res.status(500).json({ 
-          error: 'Failed to create purchase record',
-          details: 'Database error occurred'
-        });
-      }
-    }
-    
-    // Get the reference from purchase - should always be set now
-    let reference = purchase.paystackReference;
-    
-    // Ensure we have a reference (should always be set, but just in case)
-    if (!reference) {
-      reference = `DOCUEDIT-${randomUUID()}`;
-      await sqlConnection`
-        UPDATE purchases 
-        SET paystack_reference = ${reference}
-        WHERE id = ${purchase.id}
-      `;
     }
 
     // Initialize Paystack payment
@@ -960,7 +860,7 @@ app.post('/payment/initialize', async (req, res) => {
         callback_url: callbackUrl,
         metadata: {
           contentIds,
-          trackingCode: purchase.trackingCode,
+          trackingCode,
         },
       },
       {
@@ -968,7 +868,6 @@ app.post('/payment/initialize', async (req, res) => {
           Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           "Content-Type": "application/json",
         },
-        timeout: 10000, // 10 second timeout
       }
     );
 
@@ -977,10 +876,8 @@ app.post('/payment/initialize', async (req, res) => {
       return res.status(500).json({ error: "Invalid response from payment gateway" });
     }
 
-    // Return both formats for compatibility
     res.json({
       authorization_url: paystackResponse.data.data.authorization_url,
-      authorizationUrl: paystackResponse.data.data.authorization_url, // Also include camelCase
       reference: paystackResponse.data.data.reference,
       purchaseId: purchase.id,
     });
@@ -1280,113 +1177,6 @@ app.post('/purchase/:id/complete', async (req, res) => {
   }
 });
 
-// Transaction ID lookup (for complaints/disputes)
-app.post('/transaction/lookup', async (req, res) => {
-  try {
-    const { transactionId } = req.body;
-
-    if (!transactionId) {
-      return res.status(400).json({ error: "Transaction ID is required" });
-    }
-
-    // Find purchase by Paystack reference
-    const purchase = await storage.getPurchaseByReference(transactionId);
-    if (!purchase) {
-      return res.status(404).json({ 
-        error: "Transaction ID not found",
-        message: "This transaction ID does not exist in our system."
-      });
-    }
-
-    // Check with Paystack to get latest status
-    let paystackStatus = null;
-    let statusMessage = "";
-    let updatedStatus = purchase.status;
-
-    try {
-      if (process.env.PAYSTACK_SECRET_KEY) {
-        const paystackResponse = await axios.get(
-          `https://api.paystack.co/transaction/verify/${transactionId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-            },
-          }
-        );
-
-        if (paystackResponse.data && paystackResponse.data.data) {
-          paystackStatus = paystackResponse.data.data.status;
-          
-          // Update purchase status if it changed
-          if (paystackStatus === "success" && purchase.status === 'pending') {
-            updatedStatus = 'completed';
-            await storage.updatePurchaseStatus(purchase.id, "completed");
-            
-            // Generate download tokens if not already generated
-            const tokens = await storage.getDownloadTokensByPurchase(purchase.id);
-            if (tokens.length === 0) {
-              const expiresAt = new Date();
-              expiresAt.setHours(expiresAt.getHours() + 24);
-              
-              const tokenPromises = purchase.contentIds.map(contentId => 
-                storage.createDownloadToken({
-                  purchaseId: purchase.id,
-                  contentId,
-                  token: randomUUID(),
-                  expiresAt,
-                  used: false,
-                })
-              );
-              await Promise.all(tokenPromises);
-            }
-          } else if (paystackStatus === "failed" && purchase.status === 'pending') {
-            updatedStatus = 'failed';
-            await storage.updatePurchaseStatus(purchase.id, "failed");
-          }
-        }
-      }
-    } catch (paystackError) {
-      console.error("Error checking Paystack status:", paystackError.message);
-      // Continue with database status if Paystack check fails
-    }
-
-    // Set status message based on final status
-    if (updatedStatus === "completed") {
-      statusMessage = "Payment successful! Your order is ready for download.";
-    } else if (updatedStatus === "pending") {
-      statusMessage = "Your transaction is still pending, check back later.";
-    } else if (updatedStatus === "failed") {
-      statusMessage = "This transaction failed.";
-    }
-
-    // Check if download tokens are expired (for completed purchases)
-    let downloadExpired = false;
-    if (updatedStatus === "completed") {
-      const tokens = await storage.getDownloadTokensByPurchase(purchase.id);
-      if (tokens.length > 0) {
-        const firstToken = tokens[0];
-        downloadExpired = new Date() > new Date(firstToken.expiresAt);
-      }
-    }
-
-    res.json({
-      purchaseId: purchase.id,
-      trackingCode: purchase.trackingCode,
-      reference: transactionId,
-      status: updatedStatus,
-      paystackStatus: paystackStatus,
-      message: statusMessage,
-      downloadExpired: downloadExpired,
-      totalAmount: purchase.totalAmount,
-      createdAt: purchase.createdAt,
-      userName: purchase.userName,
-    });
-  } catch (error) {
-    console.error("Transaction lookup error:", error);
-    res.status(500).json({ error: "Failed to lookup transaction ID" });
-  }
-});
-
 // Tracking code lookup
 app.post('/tracking/lookup', async (req, res) => {
   try {
@@ -1396,23 +1186,17 @@ app.post('/tracking/lookup', async (req, res) => {
       return res.status(400).json({ error: "Tracking code is required" });
     }
 
-    // Use raw SQL for faster and more reliable query
-    const purchaseResult = await sqlConnection`
-      SELECT 
-        id, tracking_code as "trackingCode", user_name as "userName",
-        unique_id as "uniqueId", content_ids as "contentIds",
-        total_amount as "totalAmount", status, paystack_reference as "paystackReference",
-        coupon_code as "couponCode", created_at as "createdAt"
-      FROM purchases 
-      WHERE tracking_code = ${trackingCode}
-      LIMIT 1
-    `;
+    const database = await initDB();
+    const purchase = await database.select()
+      .from(purchases)
+      .where(eq(purchases.trackingCode, trackingCode))
+      .limit(1);
 
-    if (purchaseResult.length === 0) {
+    if (purchase.length === 0) {
       return res.status(404).json({ error: "Tracking code not found" });
     }
 
-    const purchaseData = purchaseResult[0];
+    const purchaseData = purchase[0];
 
     // Get content details
     const items = await Promise.all(
@@ -1440,11 +1224,7 @@ app.post('/tracking/lookup', async (req, res) => {
     });
   } catch (error) {
     console.error("Tracking lookup error:", error);
-    console.error("Error details:", error.message, error.stack);
-    res.status(500).json({ 
-      error: "Failed to lookup tracking code",
-      details: error.message 
-    });
+    res.status(500).json({ error: "Failed to lookup tracking code" });
   }
 });
 
