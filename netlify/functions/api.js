@@ -338,9 +338,18 @@ const storage = {
   },
 
   async getPurchaseByReference(reference) {
-    const database = await initDB();
-    const [purchase] = await database.select().from(purchases).where(eq(purchases.paystackReference, reference));
-    return purchase;
+    // Use raw SQL to avoid Drizzle ORM issues
+    const result = await sqlConnection`
+      SELECT 
+        id, tracking_code as "trackingCode", user_name as "userName",
+        unique_id as "uniqueId", content_ids as "contentIds",
+        total_amount as "totalAmount", status, paystack_reference as "paystackReference",
+        coupon_code as "couponCode", created_at as "createdAt"
+      FROM purchases 
+      WHERE paystack_reference = ${reference}
+      LIMIT 1
+    `;
+    return result[0] || null;
   },
 
   async updatePurchaseStatus(id, status) {
