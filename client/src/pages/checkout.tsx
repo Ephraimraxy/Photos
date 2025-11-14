@@ -57,78 +57,9 @@ export default function Checkout() {
 
   // Initialize payment mutation
   const initPaymentMutation = useMutation({
-    mutationFn: async (data: { contentIds: string[]; trackingCode: string; userName: string; couponCode?: string }) => {
+    mutationFn: async (data: { contentIds: string[]; userName: string; couponCode?: string }) => {
       const response = await apiRequest("POST", "/api/payment/initialize", data);
       return await response.json();
-    },
-    onSuccess: (data: any) => {
-      // Check if server generated a new tracking code
-      if (data.newTrackingCode && data.retry) {
-        console.log("Updating tracking code and retrying payment:", data.newTrackingCode);
-        localStorage.setItem("trackingCode", data.newTrackingCode);
-        setTrackingCode(data.newTrackingCode);
-        toast({
-          title: "Session Refreshed",
-          description: data.message || "Retrying payment with new tracking code...",
-        });
-        // Retry payment initialization with new tracking code (only once to prevent loops)
-        // Use a flag to prevent multiple retries
-        if ((window as any).__paymentRetryInProgress) {
-          console.log("Retry already in progress, skipping");
-          toast({
-            title: "Please Wait",
-            description: "Payment is being processed. Please wait...",
-          });
-          return;
-        }
-        
-        (window as any).__paymentRetryInProgress = true;
-        
-        setTimeout(() => {
-          const paymentData: any = {
-            contentIds: cartItems.map((item) => item.id),
-            trackingCode: data.newTrackingCode,
-            userName: userName.trim(),
-          };
-          if (activeCoupon?.code) {
-            paymentData.couponCode = activeCoupon.code;
-          }
-          // Use mutateAsync to handle the response properly
-          initPaymentMutation.mutateAsync(paymentData).then((retryResponse) => {
-            (window as any).__paymentRetryInProgress = false;
-            
-            // Check if this is also a retry response (shouldn't happen with improved server logic)
-            if (retryResponse.newTrackingCode && retryResponse.retry) {
-              console.error("Unexpected: Another retry needed. Server should have generated unique code.");
-              toast({
-                title: "Please Try Again",
-                description: "Please click the payment button again.",
-                variant: "destructive",
-              });
-            } else if (retryResponse.authorizationUrl || retryResponse.authorization_url) {
-              // Success - redirect to Paystack
-              const authUrl = retryResponse.authorizationUrl || retryResponse.authorization_url;
-              window.location.href = authUrl;
-            } else {
-              toast({
-                title: "Payment Error",
-                description: "Unable to initialize payment. Please try again.",
-                variant: "destructive",
-              });
-            }
-          }).catch((error) => {
-            (window as any).__paymentRetryInProgress = false;
-            console.error("Retry payment error:", error);
-            toast({
-              title: "Payment Error",
-              description: error.message || "Failed to initialize payment. Please try again.",
-              variant: "destructive",
-            });
-          });
-        }, 500);
-        return;
-      }
-      // If not a retry, the handlePayment function will handle the redirect
     },
     onError: (error: any) => {
       console.error("Payment initialization error:", error);
@@ -244,9 +175,9 @@ export default function Checkout() {
     }
 
     try {
+      // Don't send trackingCode - server will generate it to ensure uniqueness
       const paymentData: any = {
         contentIds: cartItems.map((item) => item.id),
-        trackingCode,
         userName: userName.trim(),
       };
 
@@ -259,14 +190,6 @@ export default function Checkout() {
 
       console.log("Payment response:", response);
       console.log("Response keys:", Object.keys(response));
-
-      // Check if server generated a new tracking code (retry case)
-      if (response.newTrackingCode && response.retry) {
-        console.log("Server generated new tracking code, retrying...");
-        // The onSuccess handler will handle the retry automatically
-        // Just return here to prevent further processing
-        return;
-      }
 
       // Check if response contains an error
       if (response.error) {

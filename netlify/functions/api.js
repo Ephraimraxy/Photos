@@ -776,14 +776,14 @@ app.post('/payment/initialize', async (req, res) => {
       });
     }
 
-    const { contentIds, trackingCode, userName, couponCode } = req.body;
+    const { contentIds, userName, couponCode } = req.body;
 
     if (!contentIds || !Array.isArray(contentIds) || contentIds.length === 0) {
       return res.status(400).json({ error: "Content IDs are required" });
     }
 
-    if (!trackingCode || !userName) {
-      return res.status(400).json({ error: "Tracking code and user name are required" });
+    if (!userName) {
+      return res.status(400).json({ error: "User name is required" });
     }
 
     // Calculate total amount
@@ -816,48 +816,47 @@ app.post('/payment/initialize', async (req, res) => {
     const reference = `DOCUEDIT-${randomUUID()}`;
     const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
-    // Check if tracking code already exists and generate a unique one if needed
-    let finalTrackingCode = trackingCode;
+    // Always generate tracking code on server side to ensure uniqueness
+    // Use timestamp + UUID + random to guarantee uniqueness
+    const generateUniqueTrackingCode = () => {
+      const timestamp = Date.now();
+      const uuid = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+      const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+      return `CART${timestamp.toString(36).toUpperCase()}${uuid}${random}`;
+    };
+
+    // Generate tracking code and ensure it's unique
+    let finalTrackingCode = generateUniqueTrackingCode();
     let attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = 5;
     
     while (attempts < maxAttempts) {
       try {
-        // Check if tracking code exists using raw SQL for better performance
+        // Check if tracking code exists using raw SQL
         const existing = await sqlConnection`
           SELECT id FROM purchases 
           WHERE tracking_code = ${finalTrackingCode}
           LIMIT 1
         `;
         
-        if (existing.length > 0) {
-          // Generate new tracking code with timestamp to ensure uniqueness
-          const timestamp = Date.now().toString(36).toUpperCase();
-          const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-          finalTrackingCode = `CART${timestamp}${random}`;
-          attempts++;
-          console.log(`Tracking code collision detected, generated new: ${finalTrackingCode} (attempt ${attempts})`);
-          continue;
+        if (existing.length === 0) {
+          // Code is unique, break out of loop
+          break;
         }
         
-        // Tracking code is unique, break out of loop
-        break;
+        // Collision detected, generate new code
+        finalTrackingCode = generateUniqueTrackingCode();
+        attempts++;
+        console.log(`Tracking code collision detected, generated new: ${finalTrackingCode} (attempt ${attempts})`);
       } catch (checkError) {
         console.error('Error checking tracking code:', checkError);
-        // If check fails, generate a timestamp-based code to ensure uniqueness
-        const timestamp = Date.now().toString(36).toUpperCase();
-        const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-        finalTrackingCode = `CART${timestamp}${random}`;
+        // If check fails, generate a new code and proceed
+        finalTrackingCode = generateUniqueTrackingCode();
         break;
       }
     }
     
-    // If we've exhausted attempts, use a UUID-based code as last resort
-    if (attempts >= maxAttempts) {
-      const uuid = randomUUID().replace(/-/g, '').substring(0, 12).toUpperCase();
-      finalTrackingCode = `CART${Date.now().toString(36).toUpperCase()}${uuid}`;
-      console.log(`Max attempts reached, using UUID-based code: ${finalTrackingCode}`);
-    }
+    console.log(`Using tracking code: ${finalTrackingCode}`);
 
     // Create purchase record
     let purchase;
@@ -910,14 +909,8 @@ app.post('/payment/initialize', async (req, res) => {
       });
     }
 
-    // If tracking code was changed, return it to client
-    if (finalTrackingCode !== trackingCode) {
-      return res.json({
-        newTrackingCode: finalTrackingCode,
-        message: 'A new tracking code has been generated. Please try again.',
-        retry: true
-      });
-    }
+    // Tracking code is always generated on server, so no need to return retry response
+    // The purchase is created successfully, proceed with payment initialization
 
     // Initialize Paystack payment
     // Get callback URL - use environment variable or construct from request headers
