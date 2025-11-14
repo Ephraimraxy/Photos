@@ -840,14 +840,7 @@ app.post('/payment/initialize', async (req, res) => {
           .where(eq(purchases.id, existing.id));
         
         // Use existing reference or generate new one
-        const reference = existing.paystackReference || `DOCUEDIT-${randomUUID()}`;
-        
-        // If no reference exists, update it
-        if (!existing.paystackReference) {
-          await database.update(purchases)
-            .set({ paystackReference: reference })
-            .where(eq(purchases.id, existing.id));
-        }
+        // Reference will be set later in the code
       } else {
         // If purchase is completed or failed, generate new tracking code
         console.log('Existing purchase is not pending, generating new tracking code');
@@ -908,7 +901,14 @@ app.post('/payment/initialize', async (req, res) => {
     }
     
     // Get the reference from purchase (might be existing or new)
-    const reference = purchase.paystackReference || `DOCUEDIT-${randomUUID()}`;
+    let reference = purchase.paystackReference || `DOCUEDIT-${randomUUID()}`;
+    
+    // If purchase didn't have a reference, update it
+    if (!purchase.paystackReference) {
+      await database.update(purchases)
+        .set({ paystackReference: reference })
+        .where(eq(purchases.id, purchase.id));
+    }
 
     // Initialize Paystack payment
     // Get callback URL - use environment variable or construct from request headers
@@ -932,11 +932,10 @@ app.post('/payment/initialize', async (req, res) => {
     
     if (existingByRef.length > 0 && existingByRef[0].id !== purchase.id) {
       // Reference already used, generate new one
-      const newReference = `DOCUEDIT-${randomUUID()}`;
+      reference = `DOCUEDIT-${randomUUID()}`;
       await database.update(purchases)
-        .set({ paystackReference: newReference })
+        .set({ paystackReference: reference })
         .where(eq(purchases.id, purchase.id));
-      reference = newReference;
     }
 
     const paystackResponse = await axios.post(
