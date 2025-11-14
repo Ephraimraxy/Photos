@@ -197,8 +197,8 @@ app.use((req, res, next) => {
   else if (event?._parsedFile) {
     req.file = event._parsedFile;
     if (event._parsedFields) {
-      req.body = { ...req.body, ...event._parsedFields };
-    }
+    req.body = { ...req.body, ...event._parsedFields };
+  }
   }
   
   next();
@@ -301,11 +301,11 @@ const storage = {
   async createPurchase(data) {
     const database = await initDB();
     try {
-      const [purchase] = await database.insert(purchases).values(data).returning();
+    const [purchase] = await database.insert(purchases).values(data).returning();
       if (!purchase) {
         throw new Error('Failed to create purchase - no record returned');
       }
-      return purchase;
+    return purchase;
     } catch (error) {
       console.error('Error creating purchase:', error);
       // Try with raw SQL as fallback - use coupon_code (text) not coupon_id
@@ -754,7 +754,7 @@ app.get('/content/:id/download', async (req, res) => {
     
     // Fallback to Google Drive or Supabase URL redirect
     if (content.downloadUrl) {
-      res.redirect(content.downloadUrl);
+    res.redirect(content.downloadUrl);
     } else if (content.supabaseUrl) {
       res.redirect(content.supabaseUrl);
     } else {
@@ -841,14 +841,14 @@ app.post('/payment/initialize', async (req, res) => {
     // Get callback URL - use environment variable or construct from request headers
     let callbackUrl;
     if (process.env.NETLIFY_URL) {
-      callbackUrl = `${process.env.NETLIFY_URL}/checkout`;
+      callbackUrl = `${process.env.NETLIFY_URL}/payment-confirmation`;
     } else if (process.env.DEPLOY_PRIME_URL) {
-      callbackUrl = `${process.env.DEPLOY_PRIME_URL}/checkout`;
+      callbackUrl = `${process.env.DEPLOY_PRIME_URL}/payment-confirmation`;
     } else {
       // Fallback: try to construct from request headers
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'photosbuy.netlify.app';
-      callbackUrl = `${protocol}://${host}/checkout`;
+      callbackUrl = `${protocol}://${host}/payment-confirmation`;
     }
 
     const paystackResponse = await axios.post(
@@ -933,22 +933,26 @@ app.post('/payment/verify', async (req, res) => {
       }
     );
 
-    const paymentData = paystackResponse.data.data;
-
-    if (paymentData.status !== "success") {
-      return res.status(400).json({ error: "Payment verification failed" });
+    if (!paystackResponse.data || !paystackResponse.data.data) {
+      return res.status(500).json({ error: "Invalid response from payment gateway" });
     }
 
-    // Update purchase status
+    const paymentData = paystackResponse.data.data;
+    const paystackStatus = paymentData.status; // "success", "pending", "failed", etc.
+
+    // Find purchase by reference
     const purchase = await storage.getPurchaseByReference(reference);
     if (!purchase) {
       console.log("Purchase not found for reference:", reference);
       return res.status(404).json({ error: "Purchase not found" });
     }
 
-    console.log("Found purchase:", purchase.id, "Status:", purchase.status);
+    console.log("Found purchase:", purchase.id, "Current status:", purchase.status, "Paystack status:", paystackStatus);
 
-    if (purchase.status === 'pending') {
+    // Map Paystack status to our purchase status
+    let newStatus = purchase.status;
+    if (paystackStatus === "success" && purchase.status === 'pending') {
+      newStatus = 'completed';
       console.log("Updating purchase status to completed...");
       await storage.updatePurchaseStatus(purchase.id, "completed");
 
@@ -969,14 +973,49 @@ app.post('/payment/verify', async (req, res) => {
 
       await Promise.all(tokenPromises);
       console.log("Download tokens generated successfully");
-    } else {
-      console.log("Purchase already completed, skipping token generation");
+    } else if (paystackStatus === "failed" && purchase.status === 'pending') {
+      newStatus = 'failed';
+      await storage.updatePurchaseStatus(purchase.id, "failed");
+    } else if (paystackStatus === "pending") {
+      // Keep as pending
+      newStatus = 'pending';
     }
 
-    res.json({ purchaseId: purchase.id, trackingCode: purchase.trackingCode });
+    // Return payment status and purchase info
+    res.json({ 
+      purchaseId: purchase.id, 
+      trackingCode: purchase.trackingCode,
+      reference: reference,
+      status: newStatus,
+      paystackStatus: paystackStatus,
+      message: paystackStatus === "success" 
+        ? "Payment successful! Your order is ready for download."
+        : paystackStatus === "pending"
+        ? "Payment is being processed. Please check back in a few minutes."
+        : "Payment failed. Please try again or contact support."
+    });
   } catch (error) {
     console.error("Payment verification error:", error);
-    res.status(500).json({ error: "Failed to verify payment" });
+    
+    // Provide detailed error information
+    if (error.response) {
+      console.error("Paystack API error:", error.response.status, error.response.data);
+      return res.status(500).json({ 
+        error: "Payment gateway error",
+        details: error.response.data?.message || "Failed to verify payment"
+      });
+    } else if (error.request) {
+      console.error("No response from Paystack:", error.request);
+      return res.status(500).json({ 
+        error: "Payment gateway unavailable",
+        details: "Could not reach payment service"
+      });
+    } else {
+      return res.status(500).json({ 
+        error: "Failed to verify payment",
+        details: error.message
+      });
+    }
   }
 });
 
@@ -1386,7 +1425,7 @@ module.exports.handler = async (event, context) => {
         };
       }
       
-      const file = files[0];
+        const file = files[0];
       const title = fields.title || file.filename || 'Untitled';
       
       const mimeType = file.mimetype;

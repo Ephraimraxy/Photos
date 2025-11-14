@@ -90,35 +90,17 @@ export default function Checkout() {
       const response = await apiRequest("POST", "/api/payment/verify", { reference });
       return await response.json();
     },
-    onSuccess: (data: { purchaseId: string; trackingCode: string }) => {
+    onSuccess: (data: { purchaseId: string; trackingCode: string; reference: string; status: string }) => {
       console.log("Payment verification successful:", data);
-      const trackingLink = `${window.location.origin}/purchase/${data.purchaseId}`;
-      const total = cartItems.reduce((sum, item) => sum + item.price, 0);
-      
-      setPurchaseData({
-        purchaseId: data.purchaseId,
-        trackingCode: data.trackingCode,
-        trackingLink,
-        total,
-        itemCount: cartItems.length,
-      });
-      setShowSuccessDialog(true);
       
       // Clear tracking code state and storage after successful purchase
       localStorage.removeItem("trackingCode");
-      setTrackingCode("");
+      localStorage.removeItem("checkoutItems");
+      localStorage.removeItem("cart");
+      localStorage.removeItem("activeCoupon");
       
-      // Start countdown for redirect
-      let countdown = 3;
-      setRedirectCountdown(countdown);
-      const countdownInterval = setInterval(() => {
-        countdown--;
-        setRedirectCountdown(countdown);
-        if (countdown <= 0) {
-          clearInterval(countdownInterval);
-          setLocation(`/purchase/${data.purchaseId}`);
-        }
-      }, 1000);
+      // Redirect to confirmation page with reference
+      setLocation(`/payment-confirmation?reference=${data.reference}`);
     },
     onError: (error: Error) => {
       toast({
@@ -156,11 +138,10 @@ export default function Checkout() {
     
     if (reference) {
       console.log("Payment reference found:", reference);
-      console.log("Starting payment verification...");
-      // Verify the payment
-      verifyPaymentMutation.mutate(reference);
-      // Clean up URL
-      window.history.replaceState({}, '', '/checkout');
+      console.log("Redirecting to confirmation page...");
+      // Redirect to confirmation page - it will handle verification
+      setLocation(`/payment-confirmation?reference=${reference}`);
+      return;
     }
 
     // Load Paystack script

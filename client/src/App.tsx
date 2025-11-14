@@ -8,6 +8,7 @@ import Browse from "@/pages/browse";
 import Admin from "@/pages/admin";
 import Checkout from "@/pages/checkout";
 import Purchase from "@/pages/purchase";
+import PaymentConfirmation from "@/pages/payment-confirmation";
 import Tracking from "@/pages/tracking";
 import NotFound from "@/pages/not-found";
 import { useEffect } from "react";
@@ -18,6 +19,7 @@ function Router() {
       <Route path="/" component={Browse} />
       <Route path="/admin" component={Admin} />
       <Route path="/checkout" component={Checkout} />
+      <Route path="/payment-confirmation" component={PaymentConfirmation} />
       <Route path="/purchase/:id" component={Purchase} />
       <Route path="/tracking" component={Tracking} />
       <Route component={NotFound} />
