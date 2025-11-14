@@ -64,11 +64,12 @@ export default function Checkout() {
     onSuccess: (data: any) => {
       // Check if server generated a new tracking code
       if (data.newTrackingCode && data.retry) {
+        console.log("Updating tracking code and retrying payment:", data.newTrackingCode);
         localStorage.setItem("trackingCode", data.newTrackingCode);
         setTrackingCode(data.newTrackingCode);
         toast({
           title: "Session Refreshed",
-          description: data.message || "Please try your payment again.",
+          description: data.message || "Retrying payment with new tracking code...",
         });
         // Retry payment initialization with new tracking code
         setTimeout(() => {
@@ -80,10 +81,34 @@ export default function Checkout() {
           if (activeCoupon?.code) {
             paymentData.couponCode = activeCoupon.code;
           }
-          initPaymentMutation.mutate(paymentData);
+          // Use mutateAsync to handle the response properly
+          initPaymentMutation.mutateAsync(paymentData).then((retryResponse) => {
+            // Check if this is also a retry response
+            if (retryResponse.newTrackingCode && retryResponse.retry) {
+              // Recursive retry (shouldn't happen often)
+              console.log("Another retry needed, but stopping to prevent infinite loop");
+              toast({
+                title: "Please Try Again",
+                description: "Please click the payment button again.",
+                variant: "destructive",
+              });
+            } else if (retryResponse.authorizationUrl || retryResponse.authorization_url) {
+              // Success - redirect to Paystack
+              const authUrl = retryResponse.authorizationUrl || retryResponse.authorization_url;
+              window.location.href = authUrl;
+            }
+          }).catch((error) => {
+            console.error("Retry payment error:", error);
+            toast({
+              title: "Payment Error",
+              description: error.message || "Failed to initialize payment. Please try again.",
+              variant: "destructive",
+            });
+          });
         }, 500);
         return;
       }
+      // If not a retry, the handlePayment function will handle the redirect
     },
     onError: (error: any) => {
       console.error("Payment initialization error:", error);
@@ -213,8 +238,15 @@ export default function Checkout() {
       const response = await initPaymentMutation.mutateAsync(paymentData);
 
       console.log("Payment response:", response);
-      console.log("Authorization URL:", response.authorizationUrl);
       console.log("Response keys:", Object.keys(response));
+
+      // Check if server generated a new tracking code (retry case)
+      if (response.newTrackingCode && response.retry) {
+        console.log("Server generated new tracking code, retrying...");
+        // The onSuccess handler will handle the retry automatically
+        // Just return here to prevent further processing
+        return;
+      }
 
       // Check if response contains an error
       if (response.error) {
