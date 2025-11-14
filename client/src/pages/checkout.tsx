@@ -21,23 +21,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-declare global {
-  interface Window {
-    PaystackPop: {
-      setup: (config: {
-        key: string;
-        email: string;
-        amount: number;
-        ref: string;
-        onClose: () => void;
-        callback: (response: { reference: string }) => void;
-      }) => {
-        openIframe: () => void;
-      };
-    };
-  }
-}
-
 export default function Checkout() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
