@@ -935,7 +935,7 @@ app.post('/payment/initialize', async (req, res) => {
         callback_url: callbackUrl,
         metadata: {
           contentIds,
-          trackingCode: finalTrackingCode,
+          trackingCode: finalTrackingCode, // Server-generated unique tracking code
         },
       },
       {
