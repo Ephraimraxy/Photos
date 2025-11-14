@@ -50,9 +50,13 @@ export default function ComplaintsDisputes() {
     },
   });
 
-  const { data: transactionData, isLoading, refetch } = lookupMutation.data 
-    ? { data: lookupMutation.data as TransactionData, isLoading: false, refetch: () => lookupMutation.mutate(transactionId) }
-    : { data: null, isLoading: false, refetch: () => {} };
+  const transactionData = lookupMutation.data as TransactionData | undefined;
+  const isLoading = lookupMutation.isPending;
+  const refetch = () => {
+    if (searchId.trim()) {
+      lookupMutation.mutate(searchId.trim());
+    }
+  };
 
   const handleSearch = () => {
     if (!searchId.trim()) {
