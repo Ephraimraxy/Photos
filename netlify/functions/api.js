@@ -1394,17 +1394,23 @@ app.post('/tracking/lookup', async (req, res) => {
       return res.status(400).json({ error: "Tracking code is required" });
     }
 
-    const database = await initDB();
-    const purchase = await database.select()
-      .from(purchases)
-      .where(eq(purchases.trackingCode, trackingCode))
-      .limit(1);
+    // Use raw SQL for faster and more reliable query
+    const purchaseResult = await sqlConnection`
+      SELECT 
+        id, tracking_code as "trackingCode", user_name as "userName",
+        unique_id as "uniqueId", content_ids as "contentIds",
+        total_amount as "totalAmount", status, paystack_reference as "paystackReference",
+        coupon_code as "couponCode", created_at as "createdAt"
+      FROM purchases 
+      WHERE tracking_code = ${trackingCode}
+      LIMIT 1
+    `;
 
-    if (purchase.length === 0) {
+    if (purchaseResult.length === 0) {
       return res.status(404).json({ error: "Tracking code not found" });
     }
 
-    const purchaseData = purchase[0];
+    const purchaseData = purchaseResult[0];
 
     // Get content details
     const items = await Promise.all(
@@ -1432,7 +1438,11 @@ app.post('/tracking/lookup', async (req, res) => {
     });
   } catch (error) {
     console.error("Tracking lookup error:", error);
-    res.status(500).json({ error: "Failed to lookup tracking code" });
+    console.error("Error details:", error.message, error.stack);
+    res.status(500).json({ 
+      error: "Failed to lookup tracking code",
+      details: error.message 
+    });
   }
 });
 
