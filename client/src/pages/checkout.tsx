@@ -71,7 +71,19 @@ export default function Checkout() {
           title: "Session Refreshed",
           description: data.message || "Retrying payment with new tracking code...",
         });
-        // Retry payment initialization with new tracking code
+        // Retry payment initialization with new tracking code (only once to prevent loops)
+        // Use a flag to prevent multiple retries
+        if ((window as any).__paymentRetryInProgress) {
+          console.log("Retry already in progress, skipping");
+          toast({
+            title: "Please Wait",
+            description: "Payment is being processed. Please wait...",
+          });
+          return;
+        }
+        
+        (window as any).__paymentRetryInProgress = true;
+        
         setTimeout(() => {
           const paymentData: any = {
             contentIds: cartItems.map((item) => item.id),
@@ -83,10 +95,11 @@ export default function Checkout() {
           }
           // Use mutateAsync to handle the response properly
           initPaymentMutation.mutateAsync(paymentData).then((retryResponse) => {
-            // Check if this is also a retry response
+            (window as any).__paymentRetryInProgress = false;
+            
+            // Check if this is also a retry response (shouldn't happen with improved server logic)
             if (retryResponse.newTrackingCode && retryResponse.retry) {
-              // Recursive retry (shouldn't happen often)
-              console.log("Another retry needed, but stopping to prevent infinite loop");
+              console.error("Unexpected: Another retry needed. Server should have generated unique code.");
               toast({
                 title: "Please Try Again",
                 description: "Please click the payment button again.",
@@ -96,8 +109,15 @@ export default function Checkout() {
               // Success - redirect to Paystack
               const authUrl = retryResponse.authorizationUrl || retryResponse.authorization_url;
               window.location.href = authUrl;
+            } else {
+              toast({
+                title: "Payment Error",
+                description: "Unable to initialize payment. Please try again.",
+                variant: "destructive",
+              });
             }
           }).catch((error) => {
+            (window as any).__paymentRetryInProgress = false;
             console.error("Retry payment error:", error);
             toast({
               title: "Payment Error",

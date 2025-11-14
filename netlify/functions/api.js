@@ -816,24 +816,27 @@ app.post('/payment/initialize', async (req, res) => {
     const reference = `DOCUEDIT-${randomUUID()}`;
     const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
-    // Check if tracking code already exists
+    // Check if tracking code already exists and generate a unique one if needed
     let finalTrackingCode = trackingCode;
     let attempts = 0;
-    const maxAttempts = 5;
+    const maxAttempts = 10;
     
     while (attempts < maxAttempts) {
       try {
-        // Check if tracking code exists
-        const database = await initDB();
-        const existing = await database.select()
-          .from(purchases)
-          .where(eq(purchases.trackingCode, finalTrackingCode))
-          .limit(1);
+        // Check if tracking code exists using raw SQL for better performance
+        const existing = await sqlConnection`
+          SELECT id FROM purchases 
+          WHERE tracking_code = ${finalTrackingCode}
+          LIMIT 1
+        `;
         
         if (existing.length > 0) {
-          // Generate new tracking code
-          finalTrackingCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+          // Generate new tracking code with timestamp to ensure uniqueness
+          const timestamp = Date.now().toString(36).toUpperCase();
+          const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+          finalTrackingCode = `CART${timestamp}${random}`;
           attempts++;
+          console.log(`Tracking code collision detected, generated new: ${finalTrackingCode} (attempt ${attempts})`);
           continue;
         }
         
@@ -841,9 +844,19 @@ app.post('/payment/initialize', async (req, res) => {
         break;
       } catch (checkError) {
         console.error('Error checking tracking code:', checkError);
-        // If check fails, try to create anyway (might be a different error)
+        // If check fails, generate a timestamp-based code to ensure uniqueness
+        const timestamp = Date.now().toString(36).toUpperCase();
+        const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+        finalTrackingCode = `CART${timestamp}${random}`;
         break;
       }
+    }
+    
+    // If we've exhausted attempts, use a UUID-based code as last resort
+    if (attempts >= maxAttempts) {
+      const uuid = randomUUID().replace(/-/g, '').substring(0, 12).toUpperCase();
+      finalTrackingCode = `CART${Date.now().toString(36).toUpperCase()}${uuid}`;
+      console.log(`Max attempts reached, using UUID-based code: ${finalTrackingCode}`);
     }
 
     // Create purchase record
@@ -861,20 +874,29 @@ app.post('/payment/initialize', async (req, res) => {
         couponCode: coupon?.code || null, // Use coupon code (text) not coupon ID
       });
     } catch (createError) {
-      // If still fails due to duplicate, generate a completely new one
+      // If still fails due to duplicate, generate a completely new one with UUID
       if (createError.message?.includes('duplicate') || createError.message?.includes('unique constraint')) {
-        finalTrackingCode = `CART${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-        purchase = await storage.createPurchase({
-          id: randomUUID(),
-          trackingCode: finalTrackingCode,
-          userName,
-          uniqueId,
-          contentIds,
-          totalAmount,
-          status: 'pending',
-          paystackReference: reference,
-          couponCode: coupon?.code || null,
-        });
+        console.error('Duplicate tracking code error during create, generating UUID-based code');
+        const uuid = randomUUID().replace(/-/g, '').substring(0, 12).toUpperCase();
+        finalTrackingCode = `CART${Date.now().toString(36).toUpperCase()}${uuid}`;
+        
+        try {
+          purchase = await storage.createPurchase({
+            id: randomUUID(),
+            trackingCode: finalTrackingCode,
+            userName,
+            uniqueId,
+            contentIds,
+            totalAmount,
+            status: 'pending',
+            paystackReference: reference,
+            couponCode: coupon?.code || null,
+          });
+        } catch (secondError) {
+          // If this still fails, something is seriously wrong
+          console.error('Failed to create purchase even with UUID-based tracking code:', secondError);
+          throw new Error('Unable to generate unique tracking code. Please try again.');
+        }
       } else {
         throw createError;
       }
