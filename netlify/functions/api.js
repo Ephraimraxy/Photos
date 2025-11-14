@@ -812,30 +812,103 @@ app.post('/payment/initialize', async (req, res) => {
       }
     }
 
-    // Generate unique reference
-    const reference = `DOCUEDIT-${randomUUID()}`;
-    const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
+    // Check if a purchase with this tracking code already exists
+    const database = await initDB();
+    const existingPurchase = await database.select()
+      .from(purchases)
+      .where(eq(purchases.trackingCode, trackingCode))
+      .limit(1);
 
-    // Create purchase record
-    const purchase = await storage.createPurchase({
-      id: randomUUID(),
-      trackingCode,
-      userName,
-      uniqueId,
-      contentIds,
-      totalAmount,
-      status: 'pending',
-      paystackReference: reference,
-      couponCode: coupon?.code || null, // Use coupon code (text) not coupon ID
-    });
-
-    if (!purchase || !purchase.id) {
-      console.error('Failed to create purchase record');
-      return res.status(500).json({ 
-        error: 'Failed to create purchase record',
-        details: 'Database error occurred'
+    let purchase;
+    
+    if (existingPurchase.length > 0) {
+      const existing = existingPurchase[0];
+      
+      // If purchase exists and is pending, reuse it (user might be retrying)
+      if (existing.status === 'pending') {
+        console.log('Reusing existing pending purchase:', existing.id);
+        purchase = existing;
+        
+        // Update the purchase with new details (in case content changed)
+        await database.update(purchases)
+          .set({
+            contentIds: contentIds,
+            totalAmount: totalAmount,
+            couponCode: coupon?.code || null,
+            userName: userName,
+          })
+          .where(eq(purchases.id, existing.id));
+        
+        // Use existing reference or generate new one
+        const reference = existing.paystackReference || `DOCUEDIT-${randomUUID()}`;
+        
+        // If no reference exists, update it
+        if (!existing.paystackReference) {
+          await database.update(purchases)
+            .set({ paystackReference: reference })
+            .where(eq(purchases.id, existing.id));
+        }
+      } else {
+        // If purchase is completed or failed, generate new tracking code
+        console.log('Existing purchase is not pending, generating new tracking code');
+        const newTrackingCode = `CART${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        const reference = `DOCUEDIT-${randomUUID()}`;
+        const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
+        
+        purchase = await storage.createPurchase({
+          id: randomUUID(),
+          trackingCode: newTrackingCode,
+          userName,
+          uniqueId,
+          contentIds,
+          totalAmount,
+          status: 'pending',
+          paystackReference: reference,
+          couponCode: coupon?.code || null,
+        });
+        
+        if (!purchase || !purchase.id) {
+          console.error('Failed to create purchase record');
+          return res.status(500).json({ 
+            error: 'Failed to create purchase record',
+            details: 'Database error occurred'
+          });
+        }
+        
+        // Return new tracking code to client
+        return res.status(200).json({
+          newTrackingCode: newTrackingCode,
+          message: 'A new tracking code has been generated. Please try again.',
+        });
+      }
+    } else {
+      // No existing purchase, create new one
+      const reference = `DOCUEDIT-${randomUUID()}`;
+      const uniqueId = `${userName.toUpperCase()}-${randomUUID().substring(0, 8).toUpperCase()}`;
+      
+      purchase = await storage.createPurchase({
+        id: randomUUID(),
+        trackingCode,
+        userName,
+        uniqueId,
+        contentIds,
+        totalAmount,
+        status: 'pending',
+        paystackReference: reference,
+        couponCode: coupon?.code || null,
       });
+
+      if (!purchase || !purchase.id) {
+        console.error('Failed to create purchase record');
+        return res.status(500).json({ 
+          error: 'Failed to create purchase record',
+          details: 'Database error occurred'
+        });
+      }
     }
+    
+    // Get the reference from purchase (might be existing or new)
+    const reference = purchase.paystackReference || `DOCUEDIT-${randomUUID()}`;
 
     // Initialize Paystack payment
     // Get callback URL - use environment variable or construct from request headers
@@ -851,6 +924,21 @@ app.post('/payment/initialize', async (req, res) => {
       callbackUrl = `${protocol}://${host}/payment-confirmation`;
     }
 
+    // Check if this reference was already used (avoid duplicate Paystack transactions)
+    const existingByRef = await database.select()
+      .from(purchases)
+      .where(eq(purchases.paystackReference, reference))
+      .limit(1);
+    
+    if (existingByRef.length > 0 && existingByRef[0].id !== purchase.id) {
+      // Reference already used, generate new one
+      const newReference = `DOCUEDIT-${randomUUID()}`;
+      await database.update(purchases)
+        .set({ paystackReference: newReference })
+        .where(eq(purchases.id, purchase.id));
+      reference = newReference;
+    }
+
     const paystackResponse = await axios.post(
       "https://api.paystack.co/transaction/initialize",
       {
@@ -860,7 +948,7 @@ app.post('/payment/initialize', async (req, res) => {
         callback_url: callbackUrl,
         metadata: {
           contentIds,
-          trackingCode,
+          trackingCode: purchase.trackingCode,
         },
       },
       {
