@@ -44,7 +44,6 @@ export default function Checkout() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [trackingCode, setTrackingCode] = useState("");
   const [userName, setUserName] = useState("");
-  const [paystackLoaded, setPaystackLoaded] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [purchaseData, setPurchaseData] = useState<{ purchaseId: string; trackingCode: string; trackingLink: string; total: number; itemCount: number } | null>(null);
   const [activeCoupon, setActiveCoupon] = useState<{
@@ -143,28 +142,9 @@ export default function Checkout() {
       setLocation(`/payment-confirmation?reference=${reference}`);
       return;
     }
-
-    // Load Paystack script
-    const script = document.createElement("script");
-    script.src = "https://js.paystack.co/v1/inline.js";
-    script.async = true;
-    script.onload = () => setPaystackLoaded(true);
-    document.body.appendChild(script);
-
-    return () => {
-      document.body.removeChild(script);
-    };
   }, [setLocation, verifyPaymentMutation]);
 
   const handlePayment = async () => {
-    if (!paystackLoaded) {
-      toast({
-        title: "Loading Payment Gateway",
-        description: "Please wait a moment...",
-      });
-      return;
-    }
-
     if (!userName.trim()) {
       toast({
         title: "Name Required",
@@ -206,7 +186,8 @@ export default function Checkout() {
       const authUrl = response.authorizationUrl || response.authorization_url;
       if (authUrl) {
         console.log("Redirecting to authorization URL:", authUrl);
-        window.location.href = authUrl;
+        // Use replace instead of href to prevent back button issues
+        window.location.replace(authUrl);
         return; // Exit early to prevent inline fallback
       } else {
         console.error("No authorization URL received from server");
@@ -427,7 +408,7 @@ export default function Checkout() {
 
                 <Button
                   onClick={handlePayment}
-                  disabled={initPaymentMutation.isPending || verifyPaymentMutation.isPending || !paystackLoaded || !userName.trim()}
+                  disabled={initPaymentMutation.isPending || verifyPaymentMutation.isPending || !userName.trim()}
                   className="w-full h-12 text-base"
                   style={{ backgroundColor: '#00C3A0' }}
                   data-testid="button-pay-paystack"
